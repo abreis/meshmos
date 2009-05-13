@@ -13,9 +13,10 @@ public:
 	}
 } class_wimsh_mosscheduler;
 
-WimshMOSScheduler::WimshMOSScheduler () // : timer_ (this)
+WimshMOSScheduler::WimshMOSScheduler () : timer_(this)
 {
 	fprintf(stderr, "Initialized a MOS Scheduler\n");
+	timer_.resched(0.010);
 }
 
 int
@@ -24,18 +25,22 @@ WimshMOSScheduler::command(int argc, const char*const* argv)
 	if ( argc == 3 && strcmp (argv[1], "mac") == 0 ) {
 		mac_ = (WimshMac*) TclObject::lookup(argv[2]);
 		return TCL_OK;
+	} else if ( argc == 3 && strcmp (argv[1], "scheduler") == 0 ) {
+		sched_ = (WimshSchedulerFairRR*) TclObject::lookup(argv[2]);
+		return TCL_OK;
+	}
+	return TCL_ERROR;
+
 //	} else if ( argc == 3 && strcmp (argv[1], "propagation") == 0 ) {
 //		propagation_ = 1.0e-6 * atof (argv[2]);   // in us
 //		return TCL_OK;
 //	} else if ( argc == 3 && strcmp (argv[1], "id") == 0 ) {
 //		uid_ = (unsigned int) atoi (argv[2]);
 //		return TCL_OK;
-	}
-	return TCL_ERROR;
 }
 
 void
-WimshMOSScheduler::handle ()
-{
-
+MOStimer::expire(Event *e) {
+	fprintf (stderr,"%.9f Timer PING\n", NOW);
+	a_->gettimer().resched(0.010);
 }
