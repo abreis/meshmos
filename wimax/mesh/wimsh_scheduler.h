@@ -1,4 +1,4 @@
-/* 
+/*
  *  Copyright (C) 2007 Dip. Ing. dell'Informazione, University of Pisa, Italy
  *  http://info.iet.unipi.it/~cng/ns2mesh80216/
  *
@@ -48,7 +48,7 @@ protected:
 	//! Cumulative occupancy (in bytes) of the FIFO queues.
 	/*!
 	  Must be updated by the functions of derived classes.
-	  
+
 	  For instance, it may be used to drop packets.
 	  */
 	unsigned int bufSize_;
@@ -79,6 +79,9 @@ public:
 
 	//! Return the total buffer occupancy, in bytes.
 	virtual unsigned int bufSize () { return bufSize_; }
+
+	//! Return the maximum buffer size, in bytes.
+	virtual unsigned int maxBufSize () { return maxBufSize_; }
 };
 
 /*

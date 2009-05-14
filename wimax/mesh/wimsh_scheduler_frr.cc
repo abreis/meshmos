@@ -147,7 +147,7 @@ WimshSchedulerFairRR::addPdu (WimaxPdu* pdu)
 	desc.queue_.push (pdu);
 
 	// call the RD scheduler
-	RDscheduler(pdu, ndx);
+//	RDscheduler(pdu, ndx);
 
 	// update the cumulative/flow/link buffer occupancy
 	// this includes MAC overhead (header/crc), but not the fragmentation

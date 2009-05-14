@@ -6,14 +6,12 @@
 #include <wimax_common.h>
 #include <timer-handler.h>
 
-#include <scheduler.h>
-#include <rng.h>
+#include <wimsh_mac.h>
 
-#include <math.h>
-
+#include <videodata.h>
+#include <ns-process.h>
 
 class WimshMac;
-class WimshMshDsch;
 class WimshMOSScheduler;
 class WimshSchedulerFairRR;
 
@@ -32,8 +30,12 @@ public:
 	//! Do nothing.
 	virtual ~WimshMOSScheduler () { }
 
+	//! Called each time the timer fires
+	void trigger(void);
+
+	//! Return the timer object
 	MOStimer& gettimer() { return timer_; }
-	//! Handle the propagation timer: dispatch burst.
+	//! Handle the timer event
 	void handle ();
 
 private:
