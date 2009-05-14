@@ -129,7 +129,11 @@ WimshMOSScheduler::trigger(void)
 					if(pdulist_[i][k][l]->sdu()->ip()->datalen())
 						if(pdulist_[i][k][l]->sdu()->ip()->userdata()->type() == VOD_DATA) {
 							VideoData* vodinfo_ = (VideoData*)pdulist_[i][k][l]->sdu()->ip()->userdata();
-							fprintf (stderr, "\t\tVOD_DATA fid %d ndx %d distortion %f\n", pdulist_[i][k][l]->sdu()->flowId(), i, vodinfo_->distortion());
+							fprintf (stderr, "\t\tVOD_DATA\tfid %d ndx %d distortion %f\n", pdulist_[i][k][l]->sdu()->flowId(), i, vodinfo_->distortion());
+						} else if(pdulist_[i][k][l]->sdu()->ip()->userdata()->type() == VOIP_DATA) {
+							fprintf (stderr, "\t\tVOIP_DATA\tfid %d ndx %d\n", pdulist_[i][k][l]->sdu()->flowId(), i);
+						} else {
+							fprintf (stderr, "\t\tFTP_DATA\tfid %d ndx %d\n", pdulist_[i][k][l]->sdu()->flowId(), i);
 						}
 				}
 
@@ -172,7 +176,7 @@ WimshMOSScheduler::trigger(void)
 					buffusage += pdulist_[i][k][l]->size();
 				}
 	fprintf (stderr, "\tBuffer usage %d/%d, %.2f%%\n",
-			buffusage, sched_->bufSize(), ((float)buffusage/(float)sched_->maxBufSize())*100 );
+			buffusage, sched_->maxBufSize(), ((float)buffusage/(float)sched_->maxBufSize())*100 );
 
 	// reconstruct queues
 	for(unsigned i=0; i < mac_->nneighs(); i++) {
