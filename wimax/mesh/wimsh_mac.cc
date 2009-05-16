@@ -520,7 +520,6 @@ WimshMac::recvSdu (WimaxSdu* sdu)
 	// and then encapsulate the MAC SDU into a MAC PDU, which is
 	// buffered by the packet scheduler
 	} else {
-
 		// inform the MOS scheduler of this SDU (for stats)
 		mosscheduler_->statSDU(sdu);
 
@@ -535,6 +534,32 @@ WimshMac::recvSdu (WimaxSdu* sdu)
 
 		// timestamp the SDU to compute the access delay
 		sdu->timestamp() = NOW;
+
+		// ID the SDU to compute packet loss
+		{
+			bool fid_present = FALSE;
+			for (unsigned i=0; i < flowseq_.size(); i++) {
+				// find this flowID in the vector, if it doesn't exist create it
+				if(flowseq_[i].fid_ == fid) {
+					fid_present = TRUE;
+					break;
+				}
+			}
+			if(!fid_present) {
+				FlowSeq flowseq (fid);
+				flowseq_.push_back(flowseq);
+			}
+		}
+
+		for(unsigned i=0; i<flowseq_.size(); i++)
+		{
+			if(flowseq_[i].fid_ == fid)
+			{
+				sdu->seqnumber() = flowseq_[i].seq_;
+				flowseq_[i].seq_++;
+				break;
+			}
+		}
 
 		// create a new MAC PDU which encapsulates the MAC SDU
 		WimaxPdu* pdu = new WimaxPdu;

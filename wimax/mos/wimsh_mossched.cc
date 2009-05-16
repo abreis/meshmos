@@ -27,18 +27,69 @@ WimshMOSScheduler::command(int argc, const char*const* argv)
 		return TCL_OK;
 	}
 	return TCL_ERROR;
-
-//	} else if ( argc == 3 && strcmp (argv[1], "propagation") == 0 ) {
-//		propagation_ = 1.0e-6 * atof (argv[2]);   // in us
-//		return TCL_OK;
-//	} else if ( argc == 3 && strcmp (argv[1], "id") == 0 ) {
-//		uid_ = (unsigned int) atoi (argv[2]);
-//		return TCL_OK;
 }
 
 void
-WimshMOSScheduler::statSDU(const WimaxSdu* sdu)
+WimshMOSScheduler::statSDU(WimaxSdu* sdu)
 {
+
+//	if(stats_.size() == 0) { // first run
+//		// create an empty MOSFlowInfo and push it
+//		MOSFlowInfo flowstat (sdu->flowId(), HDR_CMN(sdu->ip())->uid() - 1);
+//		stats_.push_back(flowstat);
+//		fprintf(stderr, "%.9f WMOS::statSDU    [%d] Adding flow %d to stats\n",
+//				NOW, mac_->nodeId(), sdu->flowId());
+//	} else {
+	{
+		bool fid_present = FALSE;
+		for (unsigned i=0; i < stats_.size(); i++) {
+			// find this flowID in the vector, if it doesn't exist create it
+			if(stats_[i].fid_ == sdu->flowId()) {
+				fid_present = TRUE;
+				break;
+			}
+		}
+		if(!fid_present) {
+			MOSFlowInfo flowstat (sdu->flowId(), -1); // this assumes the MOS scheduler always starts before the flows
+			stats_.push_back(flowstat);
+			fprintf(stderr, "%.9f WMOS::statSDU    [%d] Adding flow %d to stats\n",
+					NOW, mac_->nodeId(), sdu->flowId());
+		}
+	}
+
+	// now update the flow statistics
+
+	// navigate to the position of MOSFlowInfo(FlowID)
+	unsigned int n;
+	for (n=0; n < stats_.size(); n++)
+		{ if (stats_[n].fid_ == sdu->flowId()) break; }
+
+	stats_[n].count_++;
+
+//	fprintf(stderr, "\t\tstats_[n].lastuid_ %d sdu->seqnumber() %d\n", stats_[n].lastuid_, sdu->seqnumber());
+ 	if( sdu->nHops() != 0) // ignore the first node, no estimates yet
+ 	{
+ 		// if the packet uids received are not sequential, assume missing packets
+		if( (stats_[n].lastuid_ + 1) != (int)sdu->seqnumber())
+			stats_[n].lostcount_ += sdu->seqnumber() - (stats_[n].lastuid_ + 1);
+		// update the last UID received
+		stats_[n].lastuid_ = sdu->seqnumber();
+ 	}
+
+	// update packet loss estimate
+	stats_[n].loss_ = (float)stats_[n].lostcount_ / (float)(stats_[n].lostcount_ + stats_[n].count_);
+
+	// debug timestamps
+//	fprintf(stderr, "\t DEBUG\n\t\tNOW %f\n\t\tTimestamp %f\n",
+//			NOW, sdu->timestamp());
+
+	// delay estimates
+ 	if( sdu->nHops() != 0) // ignore the first node, no estimates yet
+ 		stats_[n].delay_ = stats_[n].delay_*0.75 + (NOW - sdu->timestamp())*0.25;
+
+ 	// debug delay
+// 	fprintf(stderr, "\t DEBUG\n\t\tOld %f\n\t\tNew %f\n",
+// 			stats_[n].delay_, NOW - sdu->timestamp() );
 
 }
 
@@ -47,6 +98,22 @@ WimshMOSScheduler::trigger(void)
 {
 	fprintf (stderr,"%.9f Timer PING on node %d\n", NOW, mac_->nodeId());
 
+	// run the buffer algorithms
+//	bufferMOS();
+
+	// print some statistics, for debugging
+	fprintf (stderr,"\tflow statistics:\n");
+	for (unsigned i=0; i < stats_.size(); i++) {
+		fprintf (stderr,"\t\tfid %d lastuid %d count %d lost %d lossrate %f delay %f\n",
+			stats_[i].fid_, stats_[i].lastuid_, stats_[i].count_, stats_[i].lostcount_, stats_[i].loss_,
+			stats_[i].delay_);
+	}
+
+}
+
+void
+WimshMOSScheduler::bufferMOS(void)
+{
 	// pointer to this node's scheduler
 	WimshSchedulerFairRR* sched_ = (WimshSchedulerFairRR*)mac_->scheduler();
 
@@ -204,9 +271,7 @@ WimshMOSScheduler::trigger(void)
 
 //		}
 	}
-
 }
-
 
 
 

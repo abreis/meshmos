@@ -1,4 +1,4 @@
-/* 
+/*
  *  Copyright (C) 2007 Dip. Ing. dell'Informazione, University of Pisa, Italy
  *  http://info.iet.unipi.it/~cng/ns2mesh80216/
  *
@@ -47,6 +47,8 @@ private:
 	unsigned int nhops_;
 	//! Timestamp (for statistics collection).
 	double timestamp_;
+	//! Sequence number (for statistics collection)
+	unsigned int packetid_;
 public:
 	//! Build an empty SDU.
 	WimaxSdu () {
@@ -85,12 +87,16 @@ public:
 
 	//! Get/set the timestamp.
 	double& timestamp () { return timestamp_; }
+	//! Get/set the seq number.
+	unsigned int& seqnumber () { return packetid_; }
 
 	//! Add a new hop.
 	void addHop (WimaxNodeId hop) { hops_[nhops_++] = hop; }
 	//! Return the list of traversed hops.
 	void traversedHops (WimaxNodeId*& h, unsigned int& n) {
 		h = hops_; n = nhops_; }
+	//! Return the number of traversed hops.
+	unsigned int nHops () { return nhops_; }
 	//! Return the last hop. Return 0 if the number of hops is not stored.
 	WimaxNodeId lastHop () { return ( nhops_ > 0 ) ? hops_[nhops_ - 1] : 0; }
 	//! Check whether a hop has been traversed.

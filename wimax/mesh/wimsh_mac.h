@@ -332,6 +332,17 @@ class WimshMac : public TclObject {
 	//! Array of link quality indicators, one for each neighbor.
 	std::vector<LinkQuality> mshDschLinkQuality_;
 
+
+	struct FlowSeq {
+		int fid_;
+		unsigned int seq_;
+		FlowSeq (int fid = 0)
+			{ fid_ = fid; seq_ = 0; }
+	};
+
+	//! Seq number per flow
+	std::vector<FlowSeq> flowseq_;
+
 public:
 	//! Build an empty MAC.
 	WimshMac ();

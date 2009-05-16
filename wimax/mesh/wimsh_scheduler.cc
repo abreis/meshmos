@@ -1,4 +1,4 @@
-/* 
+/*
  *  Copyright (C) 2007 Dip. Ing. dell'Informazione, University of Pisa, Italy
  *  http://info.iet.unipi.it/~cng/ns2mesh80216/
  *
@@ -95,7 +95,7 @@ WimshSchedulerFifo::addPdu (WimaxPdu* pdu)
 		Stat::put ("wimsh_drop_overflow", mac_->index(), 1.0);
 		return;
 	}
-	
+
 	// retrieve the index used for this neighbor
 	const unsigned int ndx = mac_->neigh2ndx (pdu->hdr().meshCid().dst());
 
@@ -129,7 +129,7 @@ WimshSchedulerFifo::schedule (WimshFragmentationBuffer& frag, WimaxNodeId dst)
 	if ( WimaxDebug::trace("WSCH::schedule") ) fprintf (stderr,
 			"%.9f WSCH::schedule   [%d] dst %d backlog %d remaining %d\n",
 			NOW, mac_->nodeId(), dst, size_[dstNdx], frag.size());
-	
+
 	// schedule PDUs directed to the specified neighbor on a FIFO manner
 	// until there is room into the fragmentation buffer
 	// and the output queue towards that node is backlogged

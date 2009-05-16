@@ -101,8 +101,8 @@ void
 WimshSchedulerFairRR::addPdu (WimaxPdu* pdu)
 {
 	if ( WimaxDebug::trace("WSCH::addPdu") ) fprintf (stderr,
-			"%.9f WSCH::addPdu     [%d] %s\n",
-			NOW, mac_->nodeId(), WimaxDebug::format(pdu));
+			"%.9f WSCH::addPdu     [%d] %s seq %d\n",
+			NOW, mac_->nodeId(), WimaxDebug::format(pdu), pdu->sdu()->seqnumber());
 
 	// index used to identify the next-hop neighbor node
 	const unsigned int ndx = mac_->neigh2ndx (pdu->hdr().meshCid().dst());
