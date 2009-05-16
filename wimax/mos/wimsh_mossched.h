@@ -32,11 +32,13 @@ public:
 
 	//! Called each time the timer fires
 	void trigger(void);
-
 	//! Return the timer object
 	MOStimer& gettimer() { return timer_; }
 	//! Handle the timer event
 	void handle ();
+
+	//! Process an SDU for statistics
+	void statSDU(const WimaxSdu* sdu);
 
 private:
 

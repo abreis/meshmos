@@ -1,4 +1,4 @@
-/* 
+/*
  *  Copyright (C) 2007 Dip. Ing. dell'Informazione, University of Pisa, Italy
  *  http://info.iet.unipi.it/~cng/ns2mesh80216/
  *
@@ -46,6 +46,7 @@ class WimshForwarding;
 class WimshCoordinator;
 class WimshPhyMib;
 class WimshBurst;
+class WimshMOSScheduler;
 
 class Packet;
 class LL;
@@ -96,12 +97,12 @@ class WimshMacMib : public TclObject {
 		//! Current burst profile
 		wimax::BurstProfile profile_;
 		//! Constructor
-		Link( WimaxNodeId src = 0, WimaxNodeId dst = 0, 
+		Link( WimaxNodeId src = 0, WimaxNodeId dst = 0,
 			wimax::BurstProfile p = wimax::QPSK_1_2 ) {
 			src_ = src; dst_ = dst; profile_ = p;
 		}
 	};
-	
+
 	//! Link list
 	std::list< Link > linkList_;
 public:
@@ -136,7 +137,7 @@ protected:
 	  This function is also used as a demultiplex for sending commands
 	  to all member data structures of MAC that do not have a Tcl
 	  shadow object (eg. scheduler, bandwidth manager).
-	  
+
 	  The PHY MIB must be initialized via the tcl command "phymib", which
 	  also starts the frame counter timer.
 	  The first next-frame event is scheduled a few us before the actual
@@ -182,6 +183,9 @@ class WimshMac : public TclObject {
 
 	//! Packet scheduler. Initialized via tcl command.
 	WimshScheduler* scheduler_;
+
+	//! MOS scheduler. Initialized via tcl command.
+	WimshMOSScheduler* mosscheduler_;
 
 	//! Map each neighbor to a local numerical identifier for other structures.
 	/*!
@@ -287,7 +291,7 @@ class WimshMac : public TclObject {
 	  to the numerical identifiers, since we assume that all nodes have
 	  the same list of channels. Thus, the channel identifier is simply
 	  the array entry index.
-	  
+
 	  If there are multiple channels, then the control channel is iterated
 	  at the start of each frame.
 	  */
@@ -327,7 +331,7 @@ class WimshMac : public TclObject {
 	RNG mshDschRngGood_;
 	//! Array of link quality indicators, one for each neighbor.
 	std::vector<LinkQuality> mshDschLinkQuality_;
-	
+
 public:
 	//! Build an empty MAC.
 	WimshMac ();

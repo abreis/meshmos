@@ -32,6 +32,7 @@
 #include <wimsh_coordinator_std.h>
 #include <wimsh_scheduler.h>
 #include <wimsh_scheduler_frr.h>
+#include <wimsh_mossched.h>
 
 #include <ll.h>
 #include <packet.h>
@@ -234,6 +235,9 @@ WimshMac::command (int argc, const char*const* argv)
 		return TCL_OK;
 	} else if ( argc == 3 && strcmp (argv[1], "topology") == 0 ) {
 		topology_ = (WimshTopology*) TclObject::lookup (argv[2]);
+		return TCL_OK;
+	} else if ( argc == 3 && strcmp (argv[1], "mosscheduler") == 0 ) {
+		mosscheduler_ = (WimshMOSScheduler*) TclObject::lookup(argv[2]);
 		return TCL_OK;
 	} else if ( argc == 3 && strcmp (argv[1], "phy") == 0 ) {
 		phy_.push_back ((WimshPhy*) TclObject::lookup (argv[2]));
@@ -517,7 +521,10 @@ WimshMac::recvSdu (WimaxSdu* sdu)
 	// buffered by the packet scheduler
 	} else {
 
-		// this is the IP packet incapsulated into the SDU
+		// inform the MOS scheduler of this SDU (for stats)
+		mosscheduler_->statSDU(sdu);
+
+		// this is the IP packet encapsulated into the SDU
 		Packet* ip = sdu->ip();
 
 		// retrieve the flow ID of the IP datagram

@@ -37,6 +37,12 @@ WimshMOSScheduler::command(int argc, const char*const* argv)
 }
 
 void
+WimshMOSScheduler::statSDU(const WimaxSdu* sdu)
+{
+
+}
+
+void
 WimshMOSScheduler::trigger(void)
 {
 	fprintf (stderr,"%.9f Timer PING on node %d\n", NOW, mac_->nodeId());
