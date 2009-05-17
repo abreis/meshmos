@@ -31,8 +31,9 @@ struct MOSFlowInfo {
 
 	//! Delay information
 	double delay_;
-//		//! Timestamp (for statistics collection).
-//		double timestamp_;
+
+	//! MOS of the flow
+	float mos_;
 
 	//! TODO: distortion information
 
@@ -41,7 +42,7 @@ struct MOSFlowInfo {
 	MOSFlowInfo (int fid = 0, int uid = 0) {
 		fid_ = fid; count_ = 0;
 		lostcount_ = 0; lastuid_ = uid; loss_ = 0;
-		delay_ = 0;
+		delay_ = 0; mos_ = 0;
 	}
 };
 
@@ -72,6 +73,13 @@ public:
 
 	//! Process an SDU for statistics
 	void statSDU(WimaxSdu* sdu);
+	//! Process a dropped PDU for statistics
+	void dropPDU(WimaxPdu* pdu);
+
+	//! Obtain MOS for an audio flow
+	float audioMOS (double delay, float loss);
+	//! Obtain MOS for a data flow
+	float dataMOS (float loss);
 
 	//! Vector of MOSFlowInfo structs to keep track of data
 	std::vector <MOSFlowInfo> stats_;

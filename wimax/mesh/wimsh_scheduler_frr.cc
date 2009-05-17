@@ -115,6 +115,8 @@ WimshSchedulerFairRR::addPdu (WimaxPdu* pdu)
 			 bufSize_ + pdu->size() > maxBufSize_ ) ||
 		  ( bufferSharingMode_ == PER_LINK &&
 			 link_[ndx].size_ + pdu->size() > maxBufSize_) ) {
+		// notify the MAC layer of the pdu about to be dropped
+		mac_->dropPDU(pdu);
 		drop (pdu);
 		return;
 	}

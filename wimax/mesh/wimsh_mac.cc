@@ -583,6 +583,9 @@ WimshMac::recvSdu (WimaxSdu* sdu)
 	}
 }
 
+void WimshMac::dropPDU (WimaxPdu* pdu)
+{ mosscheduler_->dropPDU(pdu); }
+
 void
 WimshMac::recvMshDsch (WimshMshDsch* dsch, double txtime)
 {

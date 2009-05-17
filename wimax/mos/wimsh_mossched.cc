@@ -1,6 +1,7 @@
 #include <wimsh_mossched.h>
 #include <wimsh_scheduler_frr.h>
 #include <stat.h>
+#include <math.h>
 
 static class WimshMOSSchedulerClass : public TclClass {
 public:
@@ -94,12 +95,78 @@ WimshMOSScheduler::statSDU(WimaxSdu* sdu)
 }
 
 void
+WimshMOSScheduler::dropPDU(WimaxPdu* pdu)
+{
+	// get the sdu
+	WimaxSdu* sdu = pdu->sdu();
+
+	/* we assume the first packet of a new flow is never dropped,
+	 * so no checks are made to the stats_ vector
+	 */
+
+	// navigate to the position of MOSFlowInfo(FlowID)
+	unsigned int n;
+	for (n=0; n < stats_.size(); n++)
+		{ if (stats_[n].fid_ == sdu->flowId()) break; }
+
+	// increase the lost packet count
+	stats_[n].lostcount_++;
+	// update packet loss estimate
+	stats_[n].loss_ = (float)stats_[n].lostcount_ / (float)(stats_[n].lostcount_ + stats_[n].count_);
+
+}
+
+float
+audioMOS(double delay, float loss)
+{
+	/* info from:
+	 * Improving Quality of VoIP Streams over WiMax
+	 */
+
+	float mos = 0;
+	int R = 0;
+	bool H = FALSE;
+	float Id = 0, Ie = 0;
+
+	// effects of delay
+	if( (delay-177.3) >= 0 ) H = TRUE;
+	Id = 0.024*delay + 0.11*(delay - 177.3)*H;
+
+	// effects of loss
+	// for G.711
+	int gamma1 = 0;
+	int gamma2 = 30;
+	int gamma3 = 15;
+	Ie = gamma1 + gamma2*log(1+gamma3*loss);
+
+	// R-factor
+	R = 94.2 - Ie - Id;
+
+	// MOS
+	mos = 1 + 0.035*R + 0.000007*R*(R-60)*(100-R);
+
+	// debug
+	fprintf(stderr, "\taudioMOS delay %f loss %f mos %f", delay, loss, mos);
+
+	return mos;
+
+}
+
+float
+dataMOS (float loss)
+{
+
+}
+
+
+void
 WimshMOSScheduler::trigger(void)
 {
-	fprintf (stderr,"%.9f Timer PING on node %d\n", NOW, mac_->nodeId());
+	fprintf(stderr, "%.9f WMOS::trigger    [%d] MOS Scheduler timer fired\n",
+			NOW, mac_->nodeId());
 
 	// run the buffer algorithms
-//	bufferMOS();
+	bufferMOS();
 
 	// print some statistics, for debugging
 	fprintf (stderr,"\tflow statistics:\n");
@@ -199,15 +266,16 @@ WimshMOSScheduler::bufferMOS(void)
 //		for(unsigned j=0; j < pdulist_[i].size(); j++)
 			for(unsigned k=0; k < pdulist_[i].size(); k++)
 				for(unsigned l=0; l < pdulist_[i][k].size(); l++) {
-					if(pdulist_[i][k][l]->sdu()->ip()->datalen())
+					if(pdulist_[i][k][l]->sdu()->ip()->datalen()) {
 						if(pdulist_[i][k][l]->sdu()->ip()->userdata()->type() == VOD_DATA) {
 							VideoData* vodinfo_ = (VideoData*)pdulist_[i][k][l]->sdu()->ip()->userdata();
 							fprintf (stderr, "\t\tVOD_DATA\tfid %d ndx %d distortion %f\n", pdulist_[i][k][l]->sdu()->flowId(), i, vodinfo_->distortion());
 						} else if(pdulist_[i][k][l]->sdu()->ip()->userdata()->type() == VOIP_DATA) {
 							fprintf (stderr, "\t\tVOIP_DATA\tfid %d ndx %d\n", pdulist_[i][k][l]->sdu()->flowId(), i);
-						} else {
-							fprintf (stderr, "\t\tFTP_DATA\tfid %d ndx %d\n", pdulist_[i][k][l]->sdu()->flowId(), i);
 						}
+					} else {
+							fprintf (stderr, "\t\tFTP_DATA\tfid %d ndx %d\n", pdulist_[i][k][l]->sdu()->flowId(), i);
+					}
 				}
 
 	// fill a vector with all flow ids of the packets in the buffers

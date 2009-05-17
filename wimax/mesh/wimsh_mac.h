@@ -366,6 +366,9 @@ public:
 	//! Receive a burst, either control or data, from PHY.
 	void recvBurst (WimshBurst* burst);
 
+	//! Proxy for informing the MOS scheduler of a drop
+	void dropPDU (WimaxPdu* pdu);
+
 	//! Receive a partial MSH-DSCH from the coordinator and send it to the PHY.
 	/*!
 	  The coordinator has just allocated a new MSH-DSCH, containing the
@@ -406,6 +409,9 @@ public:
 	WimshTopology* topology () { return topology_; }
 	//! Return the scheduler.
 	WimshScheduler* scheduler () { return scheduler_; }
+	//! Return the MOS scheduler.
+	WimshMOSScheduler* mosscheduler() { return mosscheduler_; }
+
 	//! Return the bandwidth manager.
 	WimshBwManager* bwmanager () { return bwmanager_; }
 
