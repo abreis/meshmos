@@ -161,13 +161,33 @@ WimshMOSScheduler::dataMOS (float loss, float rate)
 	 */
 
 	float mos = 0;
-	float data_a=0, data_b=0;
+
+	// a=2.1 & b=0.3 will fit the curve for MOS=1 at rate 10kbps and MOS 4.5 at rate 450kbps
+	float data_a = 2.1;
+	float data_b = 0.3;
 
 	mos = data_a * log10(data_b*rate*(1-loss));
+
+	// truncate the mos at maximum value
+	if(mos>4.5) mos=4.5;
 
 	return mos;
 }
 
+float
+WimshMOSScheduler::videoMOS (void)
+{
+	float mos = 0;
+	float psnr = 0;
+	float mse = 0;
+
+	psnr = 10*log10(255*255/mse);
+
+	// linear mapping from PSNR 20dB (MOS 1) to 40dB (MOS 5)
+	mos = psnr*0.20 - 3;
+
+	return mos;
+}
 
 void
 WimshMOSScheduler::trigger(void)

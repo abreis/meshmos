@@ -78,6 +78,8 @@ public:
 
 	//! Obtain MOS for an audio flow
 	float audioMOS (double delay, float loss);
+	//! Obtain MOS for a video flow
+	float videoMOS (void);
 	//! Obtain MOS for a data flow
 	float dataMOS (float loss, float rate);
 
