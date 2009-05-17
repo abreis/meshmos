@@ -79,7 +79,7 @@ public:
 	//! Obtain MOS for an audio flow
 	float audioMOS (double delay, float loss);
 	//! Obtain MOS for a data flow
-	float dataMOS (float loss);
+	float dataMOS (float loss, float rate);
 
 	//! Vector of MOSFlowInfo structs to keep track of data
 	std::vector <MOSFlowInfo> stats_;
@@ -88,6 +88,9 @@ private:
 protected:
 	//! Tcl interface.
 	virtual int command(int argc, const char*const* argv);
+
+	//! Parameters for data MOS calculation (set via TCL)
+//	float data_a=0, data_b=0;
 
 	//! Trigger timer
 	MOStimer timer_;

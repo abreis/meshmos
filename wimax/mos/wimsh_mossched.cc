@@ -117,9 +117,9 @@ WimshMOSScheduler::dropPDU(WimaxPdu* pdu)
 }
 
 float
-audioMOS(double delay, float loss)
+WimshMOSScheduler::audioMOS(double delay, float loss)
 {
-	/* info from:
+	/* data from:
 	 * Improving Quality of VoIP Streams over WiMax
 	 */
 
@@ -153,9 +153,19 @@ audioMOS(double delay, float loss)
 }
 
 float
-dataMOS (float loss)
+WimshMOSScheduler::dataMOS (float loss, float rate)
 {
+	/* data from:
+	 * MOS-Based Multiuser Multiapplication Cross-Layer
+	 * Optimization for Mobile Multimedia Communication
+	 */
 
+	float mos = 0;
+	float data_a=0, data_b=0;
+
+	mos = data_a * log10(data_b*rate*(1-loss));
+
+	return mos;
 }
 
 
