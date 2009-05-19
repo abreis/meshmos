@@ -2,6 +2,7 @@
 #include <wimsh_scheduler_frr.h>
 #include <stat.h>
 #include <math.h>
+#include <string>
 
 static class WimshMOSSchedulerClass : public TclClass {
 public:
@@ -34,13 +35,9 @@ void
 WimshMOSScheduler::statSDU(WimaxSdu* sdu)
 {
 
-//	if(stats_.size() == 0) { // first run
-//		// create an empty MOSFlowInfo and push it
-//		MOSFlowInfo flowstat (sdu->flowId(), HDR_CMN(sdu->ip())->uid() - 1);
-//		stats_.push_back(flowstat);
-//		fprintf(stderr, "%.9f WMOS::statSDU    [%d] Adding flow %d to stats\n",
-//				NOW, mac_->nodeId(), sdu->flowId());
-//	} else {
+//	fprintf(stderr, "\tDEBUG got sdu fid %d id %d\n", sdu->flowId(), sdu->seqnumber() );
+
+	// the following code fills the stats_ vector with MOSFlowInfo elements, as new flowIDs are found
 	{
 		bool fid_present = FALSE;
 		for (unsigned i=0; i < stats_.size(); i++) {
@@ -52,6 +49,18 @@ WimshMOSScheduler::statSDU(WimaxSdu* sdu)
 		}
 		if(!fid_present) {
 			MOSFlowInfo flowstat (sdu->flowId(), -1); // this assumes the MOS scheduler always starts before the flows
+
+			if(sdu->ip()->datalen()) {
+				if(sdu->ip()->userdata()->type() == VOD_DATA) {
+					flowstat.traffic_ = M_VOD;
+//					flowstat.mse_.resize(30); // NOTE: GOP 30
+				} else if(sdu->ip()->userdata()->type() == VOIP_DATA) {
+					flowstat.traffic_ = M_VOIP;
+				}
+			} else {
+				flowstat.traffic_ = M_FTP;
+			}
+
 			stats_.push_back(flowstat);
 			fprintf(stderr, "%.9f WMOS::statSDU    [%d] Adding flow %d to stats\n",
 					NOW, mac_->nodeId(), sdu->flowId());
@@ -92,6 +101,42 @@ WimshMOSScheduler::statSDU(WimaxSdu* sdu)
 // 	fprintf(stderr, "\t DEBUG\n\t\tOld %f\n\t\tNew %f\n",
 // 			stats_[n].delay_, NOW - sdu->timestamp() );
 
+ 	// distortion tracking
+	if(sdu->ip()->userdata()->type() == VOD_DATA) {
+		VideoData* vodinfo_ = (VideoData*)sdu->ip()->userdata();
+		// store distortion info
+		stats_[n].mse_.push_back(vodinfo_->distortion());
+		// store packet ID
+		stats_[n].vod_id_.push_back(sdu->seqnumber());
+
+//		fprintf(stderr, "\tDEBUG storing fid %d id %d\n", sdu->flowId(), sdu->seqnumber());
+
+		// keep vectors at length 30
+		if(stats_[n].mse_.size() > 30)
+			stats_[n].mse_.erase(stats_[n].mse_.begin()); // pop front
+		if(stats_[n].vod_id_.size() > 30)
+			stats_[n].vod_id_.erase(stats_[n].vod_id_.begin()); // pop front
+
+		fprintf(stderr, "\tDEBUG vod_id first %d last %d\n", stats_[n].vod_id_[0],
+				stats_[n].vod_id_[stats_[n].vod_id_.size()-1] );
+	}
+
+
+	// re-evaluate the flow's MOS
+ 	switch(stats_[n].traffic_) {
+ 	case M_VOIP:
+ 		stats_[n].mos_ = audioMOS(stats_[n].delay_, stats_[n].loss_);
+ 		break;
+
+ 	case M_VOD:
+ 		stats_[n].mos_ = videoMOS( &(stats_[n].mse_),
+ 				stats_[n].vod_id_[stats_[n].vod_id_.size()-1] - stats_[n].vod_id_[0] + 1);
+ 		break;
+
+ 	default:
+ 		break;
+ 	}
+
 }
 
 void
@@ -114,6 +159,22 @@ WimshMOSScheduler::dropPDU(WimaxPdu* pdu)
 	// update packet loss estimate
 	stats_[n].loss_ = (float)stats_[n].lostcount_ / (float)(stats_[n].lostcount_ + stats_[n].count_);
 
+	// re-evaluate the flow's MOS
+ 	switch(stats_[n].traffic_) {
+ 	case M_VOIP:
+ 		stats_[n].mos_ = audioMOS(stats_[n].delay_, stats_[n].loss_);
+ 		break;
+
+ 	case M_VOD:
+ 		// due to the way the averaging operates, it is pointless to
+ 		// refresh the mos on a fresh packet loss
+// 		stats_[n].mos_ = videoMOS( &(stats_[n].mse_), &(stats_[n].vod_id_) );
+ 		break;
+
+ 	default:
+ 		break;
+ 	}
+
 }
 
 float
@@ -129,6 +190,7 @@ WimshMOSScheduler::audioMOS(double delay, float loss)
 	float Id = 0, Ie = 0;
 
 	// effects of delay
+	delay *= 1000; // to ms
 	if( (delay-177.3) >= 0 ) H = TRUE;
 	Id = 0.024*delay + 0.11*(delay - 177.3)*H;
 
@@ -146,7 +208,8 @@ WimshMOSScheduler::audioMOS(double delay, float loss)
 	mos = 1 + 0.035*R + 0.000007*R*(R-60)*(100-R);
 
 	// debug
-	fprintf(stderr, "\taudioMOS delay %f loss %f mos %f", delay, loss, mos);
+	fprintf(stderr, "\t[%d] audioMOS delay %f Id %f loss %f Ie %f mos %f\n",
+			mac_->nodeId(), delay, Id, loss, Ie, mos);
 
 	return mos;
 
@@ -175,16 +238,41 @@ WimshMOSScheduler::dataMOS (float loss, float rate)
 }
 
 float
-WimshMOSScheduler::videoMOS (void)
+WimshMOSScheduler::videoMOS (vector<float>* mse, int frames)
 {
-	float mos = 0;
-	float psnr = 0;
-	float mse = 0;
+	/* data from:
+	 * Real-Time Monitoring of Video Quality in IP Networks
+	 */
 
-	psnr = 10*log10(255*255/mse);
+	// we average MSE from the last 30 frames
+	// NOTE: this assumes a GOP of 30 pictures
+	float mse_total = 0;
+	unsigned count = mse->size();
+
+	for(unsigned i=0; i<count; i++)
+	{
+		mse_total += (*mse)[i];
+	}
+
+	/* the packet count for the average must include dropped packets
+	 * thus, we get the difference between the IDs of the first and
+	 * last packet in the ID queue
+	 */
+
+
+	// quick debug
+	fprintf(stderr, "\tDEBUG vod count %d\n", frames);
+
+	// get the real number of packets for the average, including losses
+	float mse_avg = mse_total / frames;
+
+	float psnr = 10*log10(255*255/mse_avg);
 
 	// linear mapping from PSNR 20dB (MOS 1) to 40dB (MOS 5)
-	mos = psnr*0.20 - 3;
+	float mos = psnr*0.20 - 3;
+
+	fprintf(stderr, "\t[%d] videoMOS frames %d mse_total %f mse_avg %f psnr %f mos %f\n",
+			mac_->nodeId(), frames, mse_total, mse_avg, psnr, mos);
 
 	return mos;
 }
@@ -299,12 +387,15 @@ WimshMOSScheduler::bufferMOS(void)
 					if(pdulist_[i][k][l]->sdu()->ip()->datalen()) {
 						if(pdulist_[i][k][l]->sdu()->ip()->userdata()->type() == VOD_DATA) {
 							VideoData* vodinfo_ = (VideoData*)pdulist_[i][k][l]->sdu()->ip()->userdata();
-							fprintf (stderr, "\t\tVOD_DATA\tfid %d ndx %d distortion %f\n", pdulist_[i][k][l]->sdu()->flowId(), i, vodinfo_->distortion());
+							fprintf (stderr, "\t\tVOD_DATA\tfid %d ndx %d id %d distortion %f\n",
+									pdulist_[i][k][l]->sdu()->flowId(), i, pdulist_[i][k][l]->sdu()->seqnumber(), vodinfo_->distortion());
 						} else if(pdulist_[i][k][l]->sdu()->ip()->userdata()->type() == VOIP_DATA) {
-							fprintf (stderr, "\t\tVOIP_DATA\tfid %d ndx %d\n", pdulist_[i][k][l]->sdu()->flowId(), i);
+							fprintf (stderr, "\t\tVOIP_DATA\tfid %d ndx %d id %d\n",
+									pdulist_[i][k][l]->sdu()->flowId(), i, pdulist_[i][k][l]->sdu()->seqnumber());
 						}
 					} else {
-							fprintf (stderr, "\t\tFTP_DATA\tfid %d ndx %d\n", pdulist_[i][k][l]->sdu()->flowId(), i);
+							fprintf (stderr, "\t\tFTP_DATA\tfid %d ndx %d id %d\n",
+									pdulist_[i][k][l]->sdu()->flowId(), i, pdulist_[i][k][l]->sdu()->seqnumber());
 					}
 				}
 
@@ -337,6 +428,18 @@ WimshMOSScheduler::bufferMOS(void)
 	for(unsigned int i=0; i < flowids_.size(); i++)
 		fprintf (stderr, "%d ", flowids_[i]);
 	fprintf (stderr, " \n");
+
+	// print flow ID information
+	for(unsigned int i=0; i < stats_.size(); i++)
+	{
+		string traffic;
+		switch(stats_[i].traffic_) {
+		case M_VOD: traffic="VOD "; break;
+		case M_VOIP: traffic="VOIP"; break;
+		default: traffic="DATA";
+		}
+		fprintf (stderr, "\t\tfid %d traffic %s mos %f\n", stats_[i].fid_, traffic.c_str(), stats_[i].mos_);
+	}
 
 	// see how full the buffer is
 	unsigned int buffusage = 0;

@@ -17,9 +17,13 @@ class WimshMac;
 class WimshMOSScheduler;
 class WimshSchedulerFairRR;
 
+enum MOStraffic { M_VOD, M_VOIP, M_FTP, M_NTRAFFIC };
+
 struct MOSFlowInfo {
 	//! Flow ID
 	int fid_;
+	//! Flow type
+	MOStraffic traffic_;
 	//! Last packet UID received
 	int lastuid_;
 	//! Packet count
@@ -35,7 +39,11 @@ struct MOSFlowInfo {
 	//! MOS of the flow
 	float mos_;
 
-	//! TODO: distortion information
+	//! distortion information
+	// latest N MSE received
+	vector<float> mse_;
+	// latest video packet IDs received
+	vector<int> vod_id_;
 
 
 	//! Constructor
@@ -79,7 +87,7 @@ public:
 	//! Obtain MOS for an audio flow
 	float audioMOS (double delay, float loss);
 	//! Obtain MOS for a video flow
-	float videoMOS (void);
+	float videoMOS (vector<float>* mse, int frames);
 	//! Obtain MOS for a data flow
 	float dataMOS (float loss, float rate);
 

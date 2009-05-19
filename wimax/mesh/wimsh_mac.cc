@@ -520,9 +520,6 @@ WimshMac::recvSdu (WimaxSdu* sdu)
 	// and then encapsulate the MAC SDU into a MAC PDU, which is
 	// buffered by the packet scheduler
 	} else {
-		// inform the MOS scheduler of this SDU (for stats)
-		mosscheduler_->statSDU(sdu);
-
 		// this is the IP packet encapsulated into the SDU
 		Packet* ip = sdu->ip();
 
@@ -560,6 +557,9 @@ WimshMac::recvSdu (WimaxSdu* sdu)
 				break;
 			}
 		}
+
+		// inform the MOS scheduler of this SDU (for stats)
+		mosscheduler_->statSDU(sdu);
 
 		// create a new MAC PDU which encapsulates the MAC SDU
 		WimaxPdu* pdu = new WimaxPdu;
