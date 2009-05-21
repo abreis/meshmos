@@ -40,9 +40,9 @@ struct MOSFlowInfo {
 	float mos_;
 
 	//! distortion information
-	// latest N MSE received
+	// list of lost video packet MSEs
 	vector<float> mse_;
-	// latest video packet IDs received
+	// list of lost video packet IDs
 	vector<int> vod_id_;
 
 
@@ -87,7 +87,7 @@ public:
 	//! Obtain MOS for an audio flow
 	float audioMOS (double delay, float loss);
 	//! Obtain MOS for a video flow
-	float videoMOS (vector<float>* mse, int frames);
+	float videoMOS (vector<float>* mse, float loss);
 	//! Obtain MOS for a data flow
 	float dataMOS (float loss, float rate);
 

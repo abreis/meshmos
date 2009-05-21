@@ -102,24 +102,24 @@ WimshMOSScheduler::statSDU(WimaxSdu* sdu)
 // 			stats_[n].delay_, NOW - sdu->timestamp() );
 
  	// distortion tracking
-	if(sdu->ip()->userdata()->type() == VOD_DATA) {
-		VideoData* vodinfo_ = (VideoData*)sdu->ip()->userdata();
-		// store distortion info
-		stats_[n].mse_.push_back(vodinfo_->distortion());
-		// store packet ID
-		stats_[n].vod_id_.push_back(sdu->seqnumber());
-
-//		fprintf(stderr, "\tDEBUG storing fid %d id %d\n", sdu->flowId(), sdu->seqnumber());
-
-		// keep vectors at length 30
-		if(stats_[n].mse_.size() > 30)
-			stats_[n].mse_.erase(stats_[n].mse_.begin()); // pop front
-		if(stats_[n].vod_id_.size() > 30)
-			stats_[n].vod_id_.erase(stats_[n].vod_id_.begin()); // pop front
-
-		fprintf(stderr, "\tDEBUG vod_id first %d last %d\n", stats_[n].vod_id_[0],
-				stats_[n].vod_id_[stats_[n].vod_id_.size()-1] );
-	}
+//	if(sdu->ip()->userdata()->type() == VOD_DATA) {
+//		VideoData* vodinfo_ = (VideoData*)sdu->ip()->userdata();
+//		// store distortion info
+//		stats_[n].mse_.push_back(vodinfo_->distortion());
+//		// store packet ID
+//		stats_[n].vod_id_.push_back(sdu->seqnumber());
+//
+////		fprintf(stderr, "\tDEBUG storing fid %d id %d\n", sdu->flowId(), sdu->seqnumber());
+//
+//		// keep vectors at length 30
+//		if(stats_[n].mse_.size() > 30)
+//			stats_[n].mse_.erase(stats_[n].mse_.begin()); // pop front
+//		if(stats_[n].vod_id_.size() > 30)
+//			stats_[n].vod_id_.erase(stats_[n].vod_id_.begin()); // pop front
+//
+//		fprintf(stderr, "\tDEBUG vod_id first %d last %d\n", stats_[n].vod_id_[0],
+//				stats_[n].vod_id_[stats_[n].vod_id_.size()-1] );
+//	}
 
 
 	// re-evaluate the flow's MOS
@@ -129,8 +129,7 @@ WimshMOSScheduler::statSDU(WimaxSdu* sdu)
  		break;
 
  	case M_VOD:
- 		stats_[n].mos_ = videoMOS( &(stats_[n].mse_),
- 				stats_[n].vod_id_[stats_[n].vod_id_.size()-1] - stats_[n].vod_id_[0] + 1);
+ 		stats_[n].mos_ = videoMOS( &(stats_[n].mse_), stats_[n].loss_ );
  		break;
 
  	default:
@@ -159,6 +158,24 @@ WimshMOSScheduler::dropPDU(WimaxPdu* pdu)
 	// update packet loss estimate
 	stats_[n].loss_ = (float)stats_[n].lostcount_ / (float)(stats_[n].lostcount_ + stats_[n].count_);
 
+ 	// distortion tracking
+	if(sdu->ip()->userdata()->type() == VOD_DATA) {
+		VideoData* vodinfo_ = (VideoData*)sdu->ip()->userdata();
+		// store MSE
+		stats_[n].mse_.push_back(vodinfo_->distortion());
+		// store ID
+		stats_[n].vod_id_.push_back(sdu->seqnumber());
+
+
+		// keep vectors at length 30
+//		if(stats_[n].mse_.size() > 30)
+//			stats_[n].mse_.erase(stats_[n].mse_.begin()); // pop front
+
+//		fprintf(stderr, "\tDEBUG vod_id first %d last %d\n", stats_[n].vod_id_[0],
+//				stats_[n].vod_id_[stats_[n].vod_id_.size()-1] );
+	}
+
+
 	// re-evaluate the flow's MOS
  	switch(stats_[n].traffic_) {
  	case M_VOIP:
@@ -166,14 +183,15 @@ WimshMOSScheduler::dropPDU(WimaxPdu* pdu)
  		break;
 
  	case M_VOD:
- 		// due to the way the averaging operates, it is pointless to
- 		// refresh the mos on a fresh packet loss
-// 		stats_[n].mos_ = videoMOS( &(stats_[n].mse_), &(stats_[n].vod_id_) );
+ 		stats_[n].mos_ = videoMOS( &(stats_[n].mse_), stats_[n].loss_ );
  		break;
 
  	default:
  		break;
  	}
+
+	fprintf(stderr, "%.9f WMOS::dropPDU    [%d] Received PDU fid %d seq %d \n",
+			NOW, mac_->nodeId(), sdu->flowId(), sdu->seqnumber());
 
 }
 
@@ -238,41 +256,71 @@ WimshMOSScheduler::dataMOS (float loss, float rate)
 }
 
 float
-WimshMOSScheduler::videoMOS (vector<float>* mse, int frames)
+WimshMOSScheduler::videoMOS (vector<float>* mse, float loss)
 {
 	/* data from:
 	 * Real-Time Monitoring of Video Quality in IP Networks
 	 */
 
-	// we average MSE from the last 30 frames
-	// NOTE: this assumes a GOP of 30 pictures
-	float mse_total = 0;
-	unsigned count = mse->size();
+	// break if we weren't given a video flow
+//	if(flowinfo->traffic_ != M_VOD)
+//	{
+//		fprintf(stderr, "\tDEBUG got a non-M_VOD flow in videoMOS(), aborting\n");
+//		return -1;
+//	}
 
-	for(unsigned i=0; i<count; i++)
+	// if no frames were lost, return MOS 4.5
+	if(mse->size() == 0) {
+		fprintf(stderr, "\t[%d] videoMOS no lost frames, returning MOS 4.5\n", mac_->nodeId());
+		return 4.5;
+	}
+
+	// define some parameters
+	float gamma = 0; // attenuation factor
+	float T = 10; // P-frames per GOP (10 in a 30-GOP)
+	float alpha = ( pow(gamma, T+1) - (T+1)*gamma + T) / ( T*(1-gamma)*(1-gamma) ); // (5)
+
+
+	// get sigma for (5), which is the average MSE of all dropped frames
+	float mse_total = 0;
+	for(unsigned i=0; i < mse->size(); i++)
 	{
 		mse_total += (*mse)[i];
 	}
 
-	/* the packet count for the average must include dropped packets
-	 * thus, we get the difference between the IDs of the first and
-	 * last packet in the ID queue
-	 */
+	float sigma = mse_total / mse->size();
 
+	// obtain D1 (5)
+	float D1 = alpha*sigma;
 
-	// quick debug
-	fprintf(stderr, "\tDEBUG vod count %d\n", frames);
+	// now obtain distortion D; we assume H.264 and D=s*n\*Pe*L*D1
+	float s = 8; 	// 8 slices per frame, CIF
+	float L = 1; 	// 1 frame per packet, encoding
+	float n = 1;	// bernoulli, each loss affects 1 packet
+	float Pe = loss;	// packet loss rate
 
-	// get the real number of packets for the average, including losses
-	float mse_avg = mse_total / frames;
+	float D = s*n*Pe*L*D1;
 
-	float psnr = 10*log10(255*255/mse_avg);
+	// map distortion D to PSNR
+	float psnr = 10*log10(255*255/D);
+
+	// map PSNR to quality
+//	float b1 = 0, b2 = 0;
+//	float ql = 1 / (1 + exp(b1*(psnr-b2));
 
 	// linear mapping from PSNR 20dB (MOS 1) to 40dB (MOS 5)
 	float mos = psnr*0.20 - 3;
 
-	fprintf(stderr, "\t[%d] videoMOS frames %d mse_total %f mse_avg %f psnr %f mos %f\n",
-			mac_->nodeId(), frames, mse_total, mse_avg, psnr, mos);
+	fprintf(stderr, "\t[%d] videoMOS:\n"
+			"\t\tgamma %f T %f alpha %f\n"
+			"\t\tlost %zd mse_total %f sigma %f D1 %f\n"
+			"\t\ts %f L %f n %f Pe %f\n"
+			"\t\tD %f PSNR %f MOS %f\n",
+			mac_->nodeId(),
+			gamma, T, alpha,
+			mse->size(), mse_total, sigma, D1,
+			s, L, n, Pe,
+			D, psnr, mos);
 
 	return mos;
 }
@@ -473,8 +521,6 @@ WimshMOSScheduler::bufferMOS(void)
 //		}
 	}
 }
-
-
 
 void
 MOStimer::expire(Event *e) {
