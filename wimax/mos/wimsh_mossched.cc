@@ -262,13 +262,6 @@ WimshMOSScheduler::videoMOS (vector<float>* mse, float loss)
 	 * Real-Time Monitoring of Video Quality in IP Networks
 	 */
 
-	// break if we weren't given a video flow
-//	if(flowinfo->traffic_ != M_VOD)
-//	{
-//		fprintf(stderr, "\tDEBUG got a non-M_VOD flow in videoMOS(), aborting\n");
-//		return -1;
-//	}
-
 	// if no frames were lost, return MOS 4.5
 	if(mse->size() == 0) {
 		fprintf(stderr, "\t[%d] videoMOS no lost frames, returning MOS 4.5\n", mac_->nodeId());
@@ -294,7 +287,8 @@ WimshMOSScheduler::videoMOS (vector<float>* mse, float loss)
 	float D1 = alpha*sigma;
 
 	// now obtain distortion D; we assume H.264 and D=s*n\*Pe*L*D1
-	float s = 8; 	// 8 slices per frame, CIF
+//	float s = 8; 	// 8 slices per frame, CIF
+	float s = 1; 	// since we have the MSE per frame, we consider 1 frame=1 slice
 	float L = 1; 	// 1 frame per packet, encoding
 	float n = 1;	// bernoulli, each loss affects 1 packet
 	float Pe = loss;	// packet loss rate
@@ -499,6 +493,29 @@ WimshMOSScheduler::bufferMOS(void)
 				}
 	fprintf (stderr, "\tBuffer usage %d/%d, %.2f%%\n",
 			buffusage, sched_->maxBufSize(), ((float)buffusage/(float)sched_->maxBufSize())*100 );
+
+
+	// get the number of packets in the buffers
+	unsigned int npackets = 0;
+	for(unsigned i=0; i < pdulist_.size(); i++)
+//		for(unsigned j=0; j < pdulist_[i].size(); j++)
+			for(unsigned k=0; k < pdulist_[i].size(); k++)
+				npackets += pdulist_[i][k].size();
+
+	fprintf (stderr, "\t%d packets in the buffers\n", npackets);
+
+
+	/* here, we have:
+	 * pdulist_[i][k][l] -> vector with all packets in the buffers
+	 * flowids_[i] -> vector of all flowIDs
+	 * stats_[i] -> flowinfo stats
+	 */
+
+
+
+
+
+
 
 	// reconstruct queues
 	for(unsigned i=0; i < mac_->nneighs(); i++) {

@@ -88,6 +88,8 @@ public:
 	float audioMOS (double delay, float loss);
 	//! Obtain MOS for a video flow
 	float videoMOS (vector<float>* mse, float loss);
+	//! Obtain MOS for a video flow
+//	float deltaVideoMOS (vector<float>* mse, float loss);
 	//! Obtain MOS for a data flow
 	float dataMOS (float loss, float rate);
 

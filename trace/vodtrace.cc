@@ -190,11 +190,11 @@ int VODTraceFile::setup()
 
 	}
 
-//	/* pick a random starting place in the trace file */
-//	return (int(Random::uniform((double)nrec_)+.5));
+	/* pick a random starting place in the trace file */
+	return (int(Random::uniform((double)nrec_)+.5));
 
-	// forget about video randomization, start at the beginning
-	return 0;
+//	// forget about video randomization, start at the beginning
+//	return 0;
 
 }
 
