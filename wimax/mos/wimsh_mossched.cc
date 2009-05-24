@@ -518,16 +518,17 @@ WimshMOSScheduler::bufferMOS(void)
 		 */
 
 		// need to get all packet combinations that reduce the buffer by X
-
 		// combinations represent binary values as to whether the packet has been chosen or not
-
 		// combinations (2^npackets)
 		long int ncombs = pow(2, npackets);
-
 		fprintf (stderr, "\tevaluating %ld combinations for size match\n", ncombs);
 
+		unsigned lbound = 1500;
+		unsigned rbound = 2000;
 
+		fprintf (stderr, "\t\tcombination matches for [%d,%d]:\n\t\t", lbound, rbound);
 		std::vector<bool> binComb(npackets, 0);
+		std::vector<long> validCombs;
 		for (long combID = 0; combID < ncombs; combID++)
 		{
 			std::vector<bool> binComb;
@@ -549,9 +550,21 @@ WimshMOSScheduler::bufferMOS(void)
 							packetid++;
 						}
 
-			fprintf (stderr, "\t\tcombination %ld is %d long\n", combID, combsize);
+			if(combsize > lbound && combsize < rbound) {
+				validCombs.push_back(combID);
+				fprintf (stderr, " %ld", combID);
+			}
+			fprintf (stderr, "\n");
+
 
 		}
+
+		// here we have: validCombs, with all matching combinations
+		// use dec2bin(combID, &binComb) to get packet references
+
+		fprintf (stderr, "\t%d combinations matched, processing...\n", validcombs.size());
+
+		// TODO
 
 	} // end of combination processing
 
