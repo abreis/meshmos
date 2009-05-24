@@ -429,15 +429,18 @@ WimshMOSScheduler::bufferMOS(void)
 					if(pdulist_[i][k][l]->sdu()->ip()->datalen()) {
 						if(pdulist_[i][k][l]->sdu()->ip()->userdata()->type() == VOD_DATA) {
 							VideoData* vodinfo_ = (VideoData*)pdulist_[i][k][l]->sdu()->ip()->userdata();
-							fprintf (stderr, "\t\tVOD_DATA\tfid %d ndx %d id %d distortion %f\n",
-									pdulist_[i][k][l]->sdu()->flowId(), i, pdulist_[i][k][l]->sdu()->seqnumber(), vodinfo_->distortion());
+							fprintf (stderr, "\t\tVOD_DATA\tfid %d ndx %d id %d size %d distortion %f\n",
+									pdulist_[i][k][l]->sdu()->flowId(), i, pdulist_[i][k][l]->sdu()->seqnumber(),
+									pdulist_[i][k][l]->size() ,vodinfo_->distortion());
 						} else if(pdulist_[i][k][l]->sdu()->ip()->userdata()->type() == VOIP_DATA) {
-							fprintf (stderr, "\t\tVOIP_DATA\tfid %d ndx %d id %d\n",
-									pdulist_[i][k][l]->sdu()->flowId(), i, pdulist_[i][k][l]->sdu()->seqnumber());
+							fprintf (stderr, "\t\tVOIP_DATA\tfid %d ndx %d id %d size %d\n",
+									pdulist_[i][k][l]->sdu()->flowId(), i, pdulist_[i][k][l]->sdu()->seqnumber(),
+									pdulist_[i][k][l]->size());
 						}
 					} else {
-							fprintf (stderr, "\t\tFTP_DATA\tfid %d ndx %d id %d\n",
-									pdulist_[i][k][l]->sdu()->flowId(), i, pdulist_[i][k][l]->sdu()->seqnumber());
+							fprintf (stderr, "\t\tFTP_DATA\tfid %d ndx %d id %d size %d\n",
+									pdulist_[i][k][l]->sdu()->flowId(), i, pdulist_[i][k][l]->sdu()->seqnumber(),
+									pdulist_[i][k][l]->size());
 					}
 				}
 
@@ -504,17 +507,53 @@ WimshMOSScheduler::bufferMOS(void)
 
 	fprintf (stderr, "\t%d packets in the buffers\n", npackets);
 
+	if(npackets > 0 && ((float)buffusage/(float)sched_->maxBufSize()) > 0.80) // temp, remove when this routine is called on buffer overflow
+	{
 
-	/* here, we have:
-	 * pdulist_[i][k][l] -> vector with all packets in the buffers
-	 * flowids_[i] -> vector of all flowIDs
-	 * stats_[i] -> flowinfo stats
-	 */
+		/* here, we have:
+		 * pdulist_[i][k][l] -> vector with all packets in the buffers
+		 * npackets
+		 * flowids_[i] -> vector of all flowIDs
+		 * stats_[i] -> flowinfo stats
+		 */
+
+		// need to get all packet combinations that reduce the buffer by X
+
+		// combinations represent binary values as to whether the packet has been chosen or not
+
+		// combinations (2^npackets)
+		long int ncombs = pow(2, npackets);
+
+		fprintf (stderr, "\tevaluating %ld combinations for size match\n", ncombs);
 
 
+		std::vector<bool> binComb(npackets, 0);
+		for (long combID = 0; combID < ncombs; combID++)
+		{
+			std::vector<bool> binComb;
+			dec2bin(combID, &binComb);
 
+			// fill the binComb for missing zeroes
+			for(unsigned k=binComb.size(); k<npackets; k++)
+				binComb.push_back(0);
 
+			unsigned int combsize = 0;
+			unsigned int packetid = 0;
+			for(unsigned i=0; i < pdulist_.size(); i++)
+		//		for(unsigned j=0; j < pdulist_[i].size(); j++)
+					for(unsigned k=0; k < pdulist_[i].size(); k++)
+						for(unsigned l=0; l < pdulist_[i][k].size(); l++)
+						{
+							if(binComb[packetid] == TRUE)
+								combsize += pdulist_[i][k][l]->size();
+							packetid++;
+						}
 
+			fprintf (stderr, "\t\tcombination %ld is %d long\n", combID, combsize);
+
+		}
+
+	} // end of combination processing
 
 
 	// reconstruct queues
@@ -546,4 +585,18 @@ MOStimer::expire(Event *e) {
 
 	// reschedule
 	a_->gettimer().resched(0.050); // a_->interval_ (and define via TCL)
+}
+
+void
+WimshMOSScheduler::dec2bin(long decimal, vector<bool>* binary)
+{
+	long remain;
+	vector<bool> temp;
+	do	{
+		remain = decimal % 2;
+		// whittle down the decimal number
+		decimal = decimal / 2;
+		// converts digit 0 or 1 to character '0' or '1'
+		binary->push_back(remain);
+	} while (decimal > 0);
 }

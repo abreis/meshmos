@@ -111,6 +111,8 @@ protected:
 	WimshMac* mac_;
 	//! Pointer to the Scheduler
 	WimshSchedulerFairRR* sched_;
+
+	void dec2bin(long decimal, vector<bool>* binary);
 };
 
 
