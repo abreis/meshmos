@@ -89,7 +89,7 @@ public:
 	//! Obtain MOS for a video flow
 	float videoMOS (vector<float>* mse, float loss);
 	//! Obtain deltaMOS for a video flow
-	float deltaVideoMOS (vector<float>* mse, float distincrease, float loss, unsigned packetdrops);
+	float deltaVideoMOS (vector<float>* mse, vector<float>* dropdist, MOSFlowInfo* flowinfo);
 	//! Obtain MOS for a data flow
 	float dataMOS (float loss, float rate);
 

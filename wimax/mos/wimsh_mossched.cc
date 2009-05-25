@@ -3,6 +3,7 @@
 #include <stat.h>
 #include <math.h>
 #include <string>
+#include <float.h>
 
 static class WimshMOSSchedulerClass : public TclClass {
 public:
@@ -264,7 +265,7 @@ WimshMOSScheduler::videoMOS (vector<float>* mse, float loss)
 
 	// if no frames were lost, return MOS 4.5
 	if(mse->size() == 0) {
-		fprintf(stderr, "\t[%d] videoMOS no lost frames, returning MOS 4.5\n", mac_->nodeId());
+//		fprintf(stderr, "\t[%d] videoMOS no lost frames, returning MOS 4.5\n", mac_->nodeId());
 		return 4.5;
 	}
 
@@ -305,27 +306,84 @@ WimshMOSScheduler::videoMOS (vector<float>* mse, float loss)
 	// linear mapping from PSNR 20dB (MOS 1) to 40dB (MOS 5)
 	float mos = psnr*0.20 - 3;
 
-	fprintf(stderr, "\t[%d] videoMOS:\n"
-			"\t\tgamma %f T %f alpha %f\n"
-			"\t\tlost %zd mse_total %f sigma %f D1 %f\n"
-			"\t\ts %f L %f n %f Pe %f\n"
-			"\t\tD %f PSNR %f MOS %f\n",
-			mac_->nodeId(),
-			gamma, T, alpha,
-			mse->size(), mse_total, sigma, D1,
-			s, L, n, Pe,
-			D, psnr, mos);
+//	fprintf(stderr, "\t[%d] videoMOS:\n"
+//			"\t\tgamma %f T %f alpha %f\n"
+//			"\t\tlost %zd mse_total %f sigma %f D1 %f\n"
+//			"\t\ts %f L %f n %f Pe %f\n"
+//			"\t\tD %f PSNR %f MOS %f\n",
+//			mac_->nodeId(),
+//			gamma, T, alpha,
+//			mse->size(), mse_total, sigma, D1,
+//			s, L, n, Pe,
+//			D, psnr, mos);
 
 	return mos;
 }
 
 float
-WimshMOSScheduler::deltaVideoMOS (vector<float>* mse, float distincrease, float loss, unsigned packetdrops)
+WimshMOSScheduler::deltaVideoMOS (vector<float>* mse, vector<float>* dropdist, MOSFlowInfo* flowinfo)
 {
-	float mos = 0;
+	if(mse->size() == 0) {
+		// calculate MOS for a single drop of a frame, then for all drops, and delta
+
+		// get the smallest mse
+		float lowestmse=FLT_MAX;
+		for(unsigned i=0; i < dropdist->size(); i++)
+		{
+			if( (*dropdist)[i] < lowestmse )
+				lowestmse = (*dropdist)[i];
+		}
+
+		// estimate video MOS for dropping that mse
+		std::vector<float> tempmse;
+		tempmse.push_back(lowestmse);
+		float oldloss = (float)(1) / (float)(1 + flowinfo->count_);
+		float oldMOS = videoMOS(&tempmse, oldloss);
 
 
-	return mos;
+		// now estimate video MOS for all the MSEs
+		if(dropdist->size() > 1) // if there's more than one packet being dropped
+		{
+			float newloss = (float)(dropdist->size()) / (float)(dropdist->size() + flowinfo->count_);
+			float newMOS = videoMOS(mse, newloss); // new MOS
+
+			// 4.5 is the estimate for no packet losses, if dropping this frame doesn't create a MOS > 4.5, then use that as a reference
+			if(newMOS < 4.5)
+				return (newMOS - 4.5);
+
+			return (newMOS - oldMOS);
+		}
+		else
+		{
+			// 4.5 is the estimate for no packet losses, if dropping this frame doesn't create a MOS > 4.5, then use that as a reference
+			if(oldMOS < 4.5)
+				return (oldMOS - 4.5);
+
+			tempmse.push_back(lowestmse); // again
+			float newloss = (float)(2) / (float)(2 + flowinfo->count_); // two of these packets
+			float newMOS = videoMOS(&tempmse, newloss); // new MOS
+			return (newMOS - oldMOS);
+		}
+	}
+
+	float oldloss = flowinfo->loss_;
+	float newloss = (float)(flowinfo->lostcount_ + dropdist->size()) /
+					(float)(flowinfo->lostcount_ + dropdist->size() + flowinfo->count_);
+
+	std::vector<float> totalmse;
+
+	// push original
+	for(unsigned i=0; i < mse->size(); i++)
+		totalmse.push_back( (*mse)[i] );
+
+	// combination drop increase
+	for(unsigned i=0; i < dropdist->size(); i++)
+		totalmse.push_back( (*dropdist)[i] );
+
+	float oldMOS=videoMOS(mse, oldloss);
+	float newMOS=videoMOS(&totalmse, newloss);
+
+	return (newMOS - oldMOS);
 }
 
 
@@ -574,12 +632,12 @@ WimshMOSScheduler::bufferMOS(void)
 		fprintf (stderr, "\t%zd combinations matched, processing...\n", validCombs.size());
 
 		// list all combinations
-		for(unsigned i=0; i<validCombs.size(); i++)
+		for(unsigned p=0; p<validCombs.size(); p++)
 		{
-			fprintf (stderr, "\t\tcombID %ld packets:\n", validCombs[i]);
+			fprintf (stderr, "\t\tcombID %ld packets:\n", validCombs[p]);
 
 			std::vector<bool> binComb;
-			dec2bin(validCombs[i], &binComb);
+			dec2bin(validCombs[p], &binComb);
 			for(unsigned k=binComb.size(); k<npackets; k++)
 				binComb.push_back(0);
 			unsigned int packetid = 0;
@@ -620,57 +678,67 @@ WimshMOSScheduler::bufferMOS(void)
 			{
 				// fill a vector with the flowIDs in this packet combination
 				std::vector <int> combfIDs;
-				for(unsigned i=0; i < combPdu.size(); i++)
+				for(unsigned l=0; l < combPdu.size(); l++)
 				{
 					// vector empty, push
 					if(combfIDs.size() == 0) {
-						combfIDs.push_back(combPdu[i]->sdu()->flowId());
+						combfIDs.push_back(combPdu[l]->sdu()->flowId());
 					} else {
 						// see if the fid is already in the list
 						bool inlist_ = false;
 						for(unsigned int m=0; m < combfIDs.size(); m++) {
-							if(combfIDs[m] == combPdu[i]->sdu()->flowId()) {
+							if(combfIDs[m] == combPdu[l]->sdu()->flowId()) {
 								inlist_ = true;
 							}
 						}
 						// not on the list, push
 						if(!inlist_)
-							combfIDs.push_back(combPdu[i]->sdu()->flowId());
+							combfIDs.push_back(combPdu[l]->sdu()->flowId());
 					}
 				}
 
 				// for each flow, aggregate all of its packets and estimate MOS impact
-				for(unsigned i=0; i < combfIDs.size(); i++)
+				vector<float> combMOSdrop; // stores accumulated MOS variations for this combID
+				for(unsigned l=0; l < combfIDs.size(); l++)
 				{
 					// get the FlowInfo of this flowID
 					unsigned k;
-					for(k=0; stats_[k].fid_ != combfIDs[i]; k++);
+					for(k=0; stats_[k].fid_ != combfIDs[l]; k++);
 
 					if(stats_[k].traffic_ == M_VOD)
 					{
 						// VOD, sum the distortion of all packets and pass it to deltaVideoMOS
-						float totalDist=0; unsigned nCombPackets=0;
+						vector<float> dropdist; unsigned nCombPackets=0;
 						for(unsigned n=0; n<combPdu.size(); n++) // for each PDU
 						{
-							if(combPdu[n]->sdu()->flowId() == combfIDs[i]) // if it belongs to the current flowID
+							if(combPdu[n]->sdu()->flowId() == combfIDs[l]) // if it belongs to the current flowID
 							{
 								if(combPdu[n]->sdu()->ip()->userdata()->type() == VOD_DATA) { // and is VOD
 									VideoData* vodinfo_ = (VideoData*)combPdu[n]->sdu()->ip()->userdata();
-									totalDist += vodinfo_->distortion(); // accumulate distortion
+									dropdist.push_back(vodinfo_->distortion()); // accumulate distortion
 									nCombPackets++;
 								}
 							}
 						}
 
-						// {fid, dist, packets}: {combfIDs[i], totalDist, nCombPackets}
-						// TODO deltaVideoMOS
+						// {fid, dist, packets}: {combfIDs[l], totalDist, nCombPackets}
+						assert(nCombPackets>0);
+
+						// nCombPackets, estimate drop percentage increase, get new MOS
+						float deltaMOS = deltaVideoMOS(&(stats_[k].mse_), &dropdist, &(stats_[k]));
+
+						// associate the deltaMOS to this combID for later processing
+						combMOSdrop.push_back(deltaMOS);
+
+						fprintf(stderr, "\t\t\t(-) VOD  fid %d drop %d delta %f\n",
+								combfIDs[l], nCombPackets, deltaMOS);
 					}
 					else if(stats_[k].traffic_ == M_VOIP)
 					{
 						// VOIP, get the number of packets for error percentage
 						unsigned nCombPackets=0;
 						for(unsigned n=0; n<combPdu.size(); n++) // for each PDU
-							if(combPdu[n]->sdu()->flowId() == combfIDs[i]) // if it belongs to the current flowID
+							if(combPdu[n]->sdu()->flowId() == combfIDs[l]) // if it belongs to the current flowID
 								nCombPackets++;
 
 						assert(nCombPackets>0);
@@ -682,8 +750,11 @@ WimshMOSScheduler::bufferMOS(void)
 						float newMOS = audioMOS(stats_[k].delay_, newloss);
 						float deltaMOS = newMOS - stats_[k].mos_;
 
-						fprintf(stderr, "\tfid %d drop %d oldMOS %f newMOS %f delta %f\n",
-								combfIDs[i], nCombPackets, stats_[k].mos_, newMOS, deltaMOS);
+						// associate the deltaMOS to this combID for later processing
+						combMOSdrop.push_back(deltaMOS);
+
+						fprintf(stderr, "\t\t\t(-) VOIP fid %d drop %d oldMOS %f newMOS %f delta %f\n",
+								combfIDs[l], nCombPackets, stats_[k].mos_, newMOS, deltaMOS);
 
 					}
 					else
@@ -692,8 +763,25 @@ WimshMOSScheduler::bufferMOS(void)
 						// TODO: nothing for now
 					}
 
-				}
+				} // end of for each fID of this comb
 
+
+				// process list of distortion impacts, combMOSdrop[]
+				{
+					// total drop
+					float totalMOSdrop = 0;
+					for(unsigned i=0; i<combMOSdrop.size(); i++)
+						totalMOSdrop+=combMOSdrop[i];
+
+					// average drop
+					float avgMOSdrop = totalMOSdrop / combMOSdrop.size();
+
+					// standard deviation TODO
+					float stdMOSdrop = 0;
+
+					fprintf(stderr, "\t\t\t(+) combID %ld flows impacted %zd MOSimpact total %f avg %f std %f\n",
+							validCombs[p], combMOSdrop.size(), totalMOSdrop, avgMOSdrop, stdMOSdrop);
+				}
 
 			} // end of MOS calculations
 
