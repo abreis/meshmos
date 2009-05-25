@@ -88,8 +88,8 @@ public:
 	float audioMOS (double delay, float loss);
 	//! Obtain MOS for a video flow
 	float videoMOS (vector<float>* mse, float loss);
-	//! Obtain MOS for a video flow
-//	float deltaVideoMOS (vector<float>* mse, float loss);
+	//! Obtain deltaMOS for a video flow
+	float deltaVideoMOS (vector<float>* mse, float distincrease, float loss, unsigned packetdrops);
 	//! Obtain MOS for a data flow
 	float dataMOS (float loss, float rate);
 
@@ -112,6 +112,7 @@ protected:
 	//! Pointer to the Scheduler
 	WimshSchedulerFairRR* sched_;
 
+	//! convert a long int to a binary value, stored in a vector<bool>
 	void dec2bin(long decimal, vector<bool>* binary);
 };
 

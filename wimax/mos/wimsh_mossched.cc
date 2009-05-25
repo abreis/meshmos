@@ -53,7 +53,6 @@ WimshMOSScheduler::statSDU(WimaxSdu* sdu)
 			if(sdu->ip()->datalen()) {
 				if(sdu->ip()->userdata()->type() == VOD_DATA) {
 					flowstat.traffic_ = M_VOD;
-//					flowstat.mse_.resize(30); // NOTE: GOP 30
 				} else if(sdu->ip()->userdata()->type() == VOIP_DATA) {
 					flowstat.traffic_ = M_VOIP;
 				}
@@ -102,6 +101,7 @@ WimshMOSScheduler::statSDU(WimaxSdu* sdu)
 // 			stats_[n].delay_, NOW - sdu->timestamp() );
 
  	// distortion tracking
+ 	// being done on drops
 //	if(sdu->ip()->userdata()->type() == VOD_DATA) {
 //		VideoData* vodinfo_ = (VideoData*)sdu->ip()->userdata();
 //		// store distortion info
@@ -318,6 +318,16 @@ WimshMOSScheduler::videoMOS (vector<float>* mse, float loss)
 
 	return mos;
 }
+
+float
+WimshMOSScheduler::deltaVideoMOS (vector<float>* mse, float distincrease, float loss, unsigned packetdrops)
+{
+	float mos = 0;
+
+
+	return mos;
+}
+
 
 void
 WimshMOSScheduler::trigger(void)
@@ -573,6 +583,7 @@ WimshMOSScheduler::bufferMOS(void)
 			for(unsigned k=binComb.size(); k<npackets; k++)
 				binComb.push_back(0);
 			unsigned int packetid = 0;
+			std::vector<WimaxPdu*> combPdu;
 			for(unsigned i=0; i < pdulist_.size(); i++)
 //				for(unsigned j=0; j < pdulist_[i].size(); j++)
 					for(unsigned k=0; k < pdulist_[i].size(); k++)
@@ -597,11 +608,95 @@ WimshMOSScheduler::bufferMOS(void)
 												pdulist_[i][k][l]->sdu()->flowId(), i, pdulist_[i][k][l]->sdu()->seqnumber(),
 												pdulist_[i][k][l]->size());
 								}
-							// store the packet
-
+							// store the packet for MOS processing
+								combPdu.push_back(pdulist_[i][k][l]);
 							}
 							packetid++;
 						}
+
+
+			// calculate MOS and impact here
+			// vector combPdu is where it's at
+			{
+				// fill a vector with the flowIDs in this packet combination
+				std::vector <int> combfIDs;
+				for(unsigned i=0; i < combPdu.size(); i++)
+				{
+					// vector empty, push
+					if(combfIDs.size() == 0) {
+						combfIDs.push_back(combPdu[i]->sdu()->flowId());
+					} else {
+						// see if the fid is already in the list
+						bool inlist_ = false;
+						for(unsigned int m=0; m < combfIDs.size(); m++) {
+							if(combfIDs[m] == combPdu[i]->sdu()->flowId()) {
+								inlist_ = true;
+							}
+						}
+						// not on the list, push
+						if(!inlist_)
+							combfIDs.push_back(combPdu[i]->sdu()->flowId());
+					}
+				}
+
+				// for each flow, aggregate all of its packets and estimate MOS impact
+				for(unsigned i=0; i < combfIDs.size(); i++)
+				{
+					// get the FlowInfo of this flowID
+					unsigned k;
+					for(k=0; stats_[k].fid_ != combfIDs[i]; k++);
+
+					if(stats_[k].traffic_ == M_VOD)
+					{
+						// VOD, sum the distortion of all packets and pass it to deltaVideoMOS
+						float totalDist=0; unsigned nCombPackets=0;
+						for(unsigned n=0; n<combPdu.size(); n++) // for each PDU
+						{
+							if(combPdu[n]->sdu()->flowId() == combfIDs[i]) // if it belongs to the current flowID
+							{
+								if(combPdu[n]->sdu()->ip()->userdata()->type() == VOD_DATA) { // and is VOD
+									VideoData* vodinfo_ = (VideoData*)combPdu[n]->sdu()->ip()->userdata();
+									totalDist += vodinfo_->distortion(); // accumulate distortion
+									nCombPackets++;
+								}
+							}
+						}
+
+						// {fid, dist, packets}: {combfIDs[i], totalDist, nCombPackets}
+						// TODO deltaVideoMOS
+					}
+					else if(stats_[k].traffic_ == M_VOIP)
+					{
+						// VOIP, get the number of packets for error percentage
+						unsigned nCombPackets=0;
+						for(unsigned n=0; n<combPdu.size(); n++) // for each PDU
+							if(combPdu[n]->sdu()->flowId() == combfIDs[i]) // if it belongs to the current flowID
+								nCombPackets++;
+
+						assert(nCombPackets>0);
+
+						// nCombPackets, estimate drop percentage increase, get new MOS
+						float newloss = (float)(stats_[k].lostcount_ + nCombPackets) /
+										(float)(stats_[k].lostcount_ + nCombPackets + stats_[k].count_);
+
+						float newMOS = audioMOS(stats_[k].delay_, newloss);
+						float deltaMOS = newMOS - stats_[k].mos_;
+
+						fprintf(stderr, "\tfid %d drop %d oldMOS %f newMOS %f delta %f\n",
+								combfIDs[i], nCombPackets, stats_[k].mos_, newMOS, deltaMOS);
+
+					}
+					else
+					{
+						// FTP
+						// TODO: nothing for now
+					}
+
+				}
+
+
+			} // end of MOS calculations
+
 		} // end of combination packet listing
 
 
