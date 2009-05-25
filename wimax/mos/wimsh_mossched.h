@@ -54,6 +54,15 @@ struct MOSFlowInfo {
 	}
 };
 
+// structure to hold {combID, totalDrop, avgDrop, stdDrop}
+struct CombInfo {
+	long combID_;
+	float total_, avg_, std_;
+	CombInfo(long combID, float total, float avg, float std) {
+		combID_ = combID; total_ = total; avg_ = avg; std_ = std;
+	}
+};
+
 class MOStimer : public TimerHandler {
 public:
 	MOStimer(WimshMOSScheduler *a) : TimerHandler() { a_ = a; }
@@ -114,6 +123,8 @@ protected:
 
 	//! convert a long int to a binary value, stored in a vector<bool>
 	void dec2bin(long decimal, vector<bool>* binary);
+	//! compute the standard deviation of an array of floats
+	float stddev(vector<float>* values);
 };
 
 

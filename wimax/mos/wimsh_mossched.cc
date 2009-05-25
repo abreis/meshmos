@@ -210,6 +210,7 @@ WimshMOSScheduler::audioMOS(double delay, float loss)
 
 	// effects of delay
 	delay *= 1000; // to ms
+	delay += 25; // 25ms -> encoding time for G.711
 	if( (delay-177.3) >= 0 ) H = TRUE;
 	Id = 0.024*delay + 0.11*(delay - 177.3)*H;
 
@@ -227,8 +228,8 @@ WimshMOSScheduler::audioMOS(double delay, float loss)
 	mos = 1 + 0.035*R + 0.000007*R*(R-60)*(100-R);
 
 	// debug
-	fprintf(stderr, "\t[%d] audioMOS delay %f Id %f loss %f Ie %f mos %f\n",
-			mac_->nodeId(), delay, Id, loss, Ie, mos);
+//	fprintf(stderr, "\t[%d] audioMOS delay %f Id %f loss %f Ie %f mos %f\n",
+//			mac_->nodeId(), delay, Id, loss, Ie, mos);
 
 	return mos;
 
@@ -497,7 +498,7 @@ WimshMOSScheduler::bufferMOS(void)
 					if(pdulist_[i][k][l]->sdu()->ip()->datalen()) {
 						if(pdulist_[i][k][l]->sdu()->ip()->userdata()->type() == VOD_DATA) {
 							VideoData* vodinfo_ = (VideoData*)pdulist_[i][k][l]->sdu()->ip()->userdata();
-							fprintf (stderr, "\t\tVOD_DATA\tfid %d ndx %d id %d size %d distortion %f\n",
+							fprintf (stderr, "\t\tVOD_DATA\tfid %d ndx %d id %d size %d\tdistortion %f\n",
 									pdulist_[i][k][l]->sdu()->flowId(), i, pdulist_[i][k][l]->sdu()->seqnumber(),
 									pdulist_[i][k][l]->size() ,vodinfo_->distortion());
 						} else if(pdulist_[i][k][l]->sdu()->ip()->userdata()->type() == VOIP_DATA) {
@@ -575,7 +576,7 @@ WimshMOSScheduler::bufferMOS(void)
 
 	fprintf (stderr, "\t%d packets in the buffers\n", npackets);
 
-	if(npackets > 0 && ((float)buffusage/(float)sched_->maxBufSize()) > 0.80) // temp, remove when this routine is called on buffer overflow
+	if(npackets > 0 && ((float)buffusage/(float)sched_->maxBufSize()) > 0.70) // temp, remove when this routine is called on buffer overflow
 	{
 
 		/* here, we have:
@@ -595,7 +596,7 @@ WimshMOSScheduler::bufferMOS(void)
 		unsigned rbound = 2000;
 
 		fprintf (stderr, "\t\tcombination matches for [%d,%d]:\n\t\t", lbound, rbound);
-		std::vector<bool> binComb(npackets, 0);
+//		std::vector<bool> binComb(npackets, 0);
 		std::vector<long> validCombs;
 		for (long combID = 0; combID < ncombs; combID++)
 		{
@@ -631,10 +632,12 @@ WimshMOSScheduler::bufferMOS(void)
 
 		fprintf (stderr, "\t%zd combinations matched, processing...\n", validCombs.size());
 
-		// list all combinations
+		// process all combinations
+		// vector to hold CombInfo elements
+		std::vector<CombInfo> combstats_;
 		for(unsigned p=0; p<validCombs.size(); p++)
 		{
-			fprintf (stderr, "\t\tcombID %ld packets:\n", validCombs[p]);
+			fprintf (stderr, "\t\tcombID %ld:\n", validCombs[p]);
 
 			std::vector<bool> binComb;
 			dec2bin(validCombs[p], &binComb);
@@ -653,7 +656,7 @@ WimshMOSScheduler::bufferMOS(void)
 								if(pdulist_[i][k][l]->sdu()->ip()->datalen()) {
 									if(pdulist_[i][k][l]->sdu()->ip()->userdata()->type() == VOD_DATA) {
 										VideoData* vodinfo_ = (VideoData*)pdulist_[i][k][l]->sdu()->ip()->userdata();
-										fprintf (stderr, "\t\t\tVOD_DATA\tfid %d ndx %d id %d size %d distortion %f\n",
+										fprintf (stderr, "\t\t\tVOD_DATA\tfid %d ndx %d id %d size %d\tdistortion %f\n",
 												pdulist_[i][k][l]->sdu()->flowId(), i, pdulist_[i][k][l]->sdu()->seqnumber(),
 												pdulist_[i][k][l]->size() ,vodinfo_->distortion());
 									} else if(pdulist_[i][k][l]->sdu()->ip()->userdata()->type() == VOIP_DATA) {
@@ -753,8 +756,8 @@ WimshMOSScheduler::bufferMOS(void)
 						// associate the deltaMOS to this combID for later processing
 						combMOSdrop.push_back(deltaMOS);
 
-						fprintf(stderr, "\t\t\t(-) VOIP fid %d drop %d oldMOS %f newMOS %f delta %f\n",
-								combfIDs[l], nCombPackets, stats_[k].mos_, newMOS, deltaMOS);
+						fprintf(stderr, "\t\t\t(-) VOIP fid %d drop %d delta %f oldMOS %f newMOS %f\n",
+								combfIDs[l], nCombPackets, deltaMOS, stats_[k].mos_, newMOS);
 
 					}
 					else
@@ -776,16 +779,66 @@ WimshMOSScheduler::bufferMOS(void)
 					// average drop
 					float avgMOSdrop = totalMOSdrop / combMOSdrop.size();
 
-					// standard deviation TODO
-					float stdMOSdrop = 0;
+					// standard deviation
+					float stdMOSdrop = stddev(&combMOSdrop);
 
-					fprintf(stderr, "\t\t\t(+) combID %ld flows impacted %zd MOSimpact total %f avg %f std %f\n",
+					// store info on vector combstats_
+					CombInfo tempcombinfo(validCombs[p], totalMOSdrop, avgMOSdrop, stdMOSdrop);
+					combstats_.push_back(tempcombinfo);
+
+					fprintf(stderr, "\t\t\t(>) combID %ld flows impacted %zd MOSimpact total %f avg %f std %f\n",
 							validCombs[p], combMOSdrop.size(), totalMOSdrop, avgMOSdrop, stdMOSdrop);
 				}
 
 			} // end of MOS calculations
 
 		} // end of combination packet listing
+
+		// sum up results
+		fprintf(stderr, "\tsynopsis of combinations:\n");
+		for(unsigned j=0; j<combstats_.size(); j++)
+		{
+			fprintf(stderr, "\t\tcombID %ld:\t total %f avg %f std %f\n",
+					combstats_[j].combID_, combstats_[j].total_, combstats_[j].avg_, combstats_[j].std_);
+		}
+
+
+		// algorithm to choose the best combID from combstats_ TODO
+		long dropCombID=0; // best combination for dropping
+
+
+		// packet dropping of chosen combID
+
+		std::vector<bool> binComb;
+		dec2bin(dropCombID, &binComb);
+
+		// fill the binComb for missing zeroes
+		for(unsigned k=binComb.size(); k<npackets; k++)
+			binComb.push_back(0);
+
+		unsigned int packetid = 0;
+		for(unsigned i=0; i < pdulist_.size(); i++)
+	//		for(unsigned j=0; j < pdulist_[i].size(); j++)
+				for(unsigned k=0; k < pdulist_[i].size(); k++)
+					for(unsigned l=0; l < pdulist_[i][k].size(); l++)
+					{
+						if(binComb[packetid] == TRUE)
+						{
+							WimaxPdu* pdu = pdulist_[i][k][l];
+							fprintf (stderr, "\t\tDropping packet fid %d ndx %d id %d size %d\n",
+									pdu->sdu()->flowId(), i, pdu->sdu()->seqnumber(), pdu->size());
+
+							dropPDU(pdu);
+							pdu->sdu()->freePayload();
+							delete pdu->sdu();
+							delete pdu;
+							pdulist_[i][k].erase(pdulist_[i][k].begin()+l);
+						}
+						packetid++;
+					}
+
+
+
 
 
 	} // end of buffer size check
@@ -834,4 +887,30 @@ WimshMOSScheduler::dec2bin(long decimal, vector<bool>* binary)
 		// converts digit 0 or 1 to character '0' or '1'
 		binary->push_back(remain);
 	} while (decimal > 0);
+}
+
+float
+WimshMOSScheduler::stddev(vector<float>* values)
+{
+	float total = 0, mean = 0, stddev = 0;
+
+	// get the total
+	for(unsigned i=0; i < values->size(); i++)
+		total += (*values)[i];
+
+	// get the mean
+	mean = total / values->size();
+
+	// get the squares
+	float sqraccum = 0;
+	for(unsigned i=0; i < values->size(); i++)
+		sqraccum += pow( ((*values)[i] - mean), 2);
+
+	// get the avg square
+	float avgsqr = sqraccum / values->size();
+
+	// get the stddev
+	stddev = sqrt(avgsqr);
+
+	return stddev;
 }
