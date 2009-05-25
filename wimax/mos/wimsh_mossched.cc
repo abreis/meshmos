@@ -353,7 +353,7 @@ WimshMOSScheduler::bufferMOS(void)
 			return;
 		}
 
-	// TODO: scheduler code enters here
+	// scheduler code enters here
 	// Probably we need to do SHARED or PER_LINK buffer instead of PER_FLOW
 	// WimaxPdu* pdu
 	// desc.size_ -> buffer size
@@ -545,6 +545,7 @@ WimshMOSScheduler::bufferMOS(void)
 					for(unsigned k=0; k < pdulist_[i].size(); k++)
 						for(unsigned l=0; l < pdulist_[i][k].size(); l++)
 						{
+							if(combsize > rbound) break; // premature break in order to speed up the process
 							if(binComb[packetid] == TRUE)
 								combsize += pdulist_[i][k][l]->size();
 							packetid++;
@@ -554,19 +555,57 @@ WimshMOSScheduler::bufferMOS(void)
 				validCombs.push_back(combID);
 				fprintf (stderr, " %ld", combID);
 			}
-			fprintf (stderr, "\n");
-
-
 		}
+		fprintf (stderr, "\n");
 
 		// here we have: validCombs, with all matching combinations
 		// use dec2bin(combID, &binComb) to get packet references
 
-		fprintf (stderr, "\t%d combinations matched, processing...\n", validcombs.size());
+		fprintf (stderr, "\t%zd combinations matched, processing...\n", validCombs.size());
 
-		// TODO
+		// list all combinations
+		for(unsigned i=0; i<validCombs.size(); i++)
+		{
+			fprintf (stderr, "\t\tcombID %ld packets:\n", validCombs[i]);
 
-	} // end of combination processing
+			std::vector<bool> binComb;
+			dec2bin(validCombs[i], &binComb);
+			for(unsigned k=binComb.size(); k<npackets; k++)
+				binComb.push_back(0);
+			unsigned int packetid = 0;
+			for(unsigned i=0; i < pdulist_.size(); i++)
+//				for(unsigned j=0; j < pdulist_[i].size(); j++)
+					for(unsigned k=0; k < pdulist_[i].size(); k++)
+						for(unsigned l=0; l < pdulist_[i][k].size(); l++)
+						{
+							if(binComb[packetid] == TRUE)
+							{
+							// print the packet info
+								if(pdulist_[i][k][l]->sdu()->ip()->datalen()) {
+									if(pdulist_[i][k][l]->sdu()->ip()->userdata()->type() == VOD_DATA) {
+										VideoData* vodinfo_ = (VideoData*)pdulist_[i][k][l]->sdu()->ip()->userdata();
+										fprintf (stderr, "\t\t\tVOD_DATA\tfid %d ndx %d id %d size %d distortion %f\n",
+												pdulist_[i][k][l]->sdu()->flowId(), i, pdulist_[i][k][l]->sdu()->seqnumber(),
+												pdulist_[i][k][l]->size() ,vodinfo_->distortion());
+									} else if(pdulist_[i][k][l]->sdu()->ip()->userdata()->type() == VOIP_DATA) {
+										fprintf (stderr, "\t\t\tVOIP_DATA\tfid %d ndx %d id %d size %d\n",
+												pdulist_[i][k][l]->sdu()->flowId(), i, pdulist_[i][k][l]->sdu()->seqnumber(),
+												pdulist_[i][k][l]->size());
+									}
+								} else {
+										fprintf (stderr, "\t\t\tFTP_DATA\tfid %d ndx %d id %d size %d\n",
+												pdulist_[i][k][l]->sdu()->flowId(), i, pdulist_[i][k][l]->sdu()->seqnumber(),
+												pdulist_[i][k][l]->size());
+								}
+							// store the packet
+
+							}
+							packetid++;
+						}
+		} // end of combination packet listing
+
+
+	} // end of buffer size check
 
 
 	// reconstruct queues
