@@ -1,9 +1,11 @@
 #include <wimsh_mossched.h>
 #include <wimsh_scheduler_frr.h>
 #include <stat.h>
-#include <math.h>
 #include <string>
+
 #include <float.h>
+#include <math.h>
+
 
 static class WimshMOSSchedulerClass : public TclClass {
 public:
@@ -167,6 +169,10 @@ WimshMOSScheduler::dropPDU(WimaxPdu* pdu)
 		// store ID
 		stats_[n].vod_id_.push_back(sdu->seqnumber());
 
+		// inform global statistics of the lost packet
+        Stat::put ("rd_vod_lost_mse", sdu->flowId(), vodinfo_->distortion());
+        Stat::put ("rd_vod_lost_frames", sdu->flowId(), 1);
+//		fprintf(stderr, "\tDEBUG STAT fid %d dist %f\n", sdu->flowId(), vodinfo_->distortion());
 
 		// keep vectors at length 30
 //		if(stats_[n].mse_.size() > 30)
@@ -301,11 +307,14 @@ WimshMOSScheduler::videoMOS (vector<float>* mse, float loss)
 	float psnr = 10*log10(255*255/D);
 
 	// map PSNR to quality
-//	float b1 = 0, b2 = 0;
-//	float ql = 1 / (1 + exp(b1*(psnr-b2));
+	float b1 = 0.5, b2 = 30;
+	float ql = 1 / ( 1 + exp(b1*(psnr-b2)) );
 
-	// linear mapping from PSNR 20dB (MOS 1) to 40dB (MOS 5)
-	float mos = psnr*0.20 - 3;
+	// map quality to MOS = Quality*(-3.5)+4.5
+	float mos = ql * 3.5 + 4.5;
+
+//	// linear mapping from PSNR 20dB (MOS 1) to 40dB (MOS 5)
+//	float mos = psnr*0.20 - 3;
 
 //	fprintf(stderr, "\t[%d] videoMOS:\n"
 //			"\t\tgamma %f T %f alpha %f\n"
@@ -320,6 +329,49 @@ WimshMOSScheduler::videoMOS (vector<float>* mse, float loss)
 
 	return mos;
 }
+
+float
+WimshMOSScheduler::mseVideoMOS (float mse, unsigned int nlost, float loss)
+{
+	if(mse== 0)
+		return 4.5;
+
+	// define some parameters
+	float gamma = 0; // attenuation factor
+	float T = 10; // P-frames per GOP (10 in a 30-GOP)
+	float alpha = ( pow(gamma, T+1) - (T+1)*gamma + T) / ( T*(1-gamma)*(1-gamma) ); // (5)
+
+	// get sigma for (5), which is the average MSE of all dropped frames
+	float sigma = mse / nlost;
+
+	// obtain D1 (5)
+	float D1 = alpha*sigma;
+
+	// now obtain distortion D; we assume H.264 and D=s*n\*Pe*L*D1
+	//	float s = 8; 	// 8 slices per frame, CIF
+	float s = 1; 	// since we have the MSE per frame, we consider 1 frame=1 slice
+	float L = 1; 	// 1 frame per packet, encoding
+	float n = 1;	// bernoulli, each loss affects 1 packet
+	float Pe = loss;	// packet loss rate
+
+	float D = s*n*Pe*L*D1;
+
+	// map distortion D to PSNR
+	float psnr = 10*log10(255*255/D);
+
+	// map PSNR to quality
+	float b1 = 0.5, b2 = 30;
+	float ql = 1 / ( 1 + exp(b1*(psnr-b2)) );
+
+	// map quality to MOS = Quality*(-3.5)+4.5
+	float mos = ql * 3.5 + 4.5;
+
+//	// linear mapping from PSNR 20dB (MOS 1) to 40dB (MOS 5)
+//	float mos = psnr*0.20 - 3;
+
+	return mos;
+}
+
 
 float
 WimshMOSScheduler::deltaVideoMOS (vector<float>* mse, vector<float>* dropdist, MOSFlowInfo* flowinfo)
@@ -595,7 +647,7 @@ WimshMOSScheduler::bufferMOS(void)
 		unsigned lbound = 1500;
 		unsigned rbound = 2000;
 
-		fprintf (stderr, "\t\tcombination matches for [%d,%d]:\n\t\t", lbound, rbound);
+		fprintf (stderr, "\t\tcombination matches for [%d,%d]:\n\t\tID:", lbound, rbound);
 //		std::vector<bool> binComb(npackets, 0);
 		std::vector<long> validCombs;
 		for (long combID = 0; combID < ncombs; combID++)
@@ -794,21 +846,40 @@ WimshMOSScheduler::bufferMOS(void)
 
 		} // end of combination packet listing
 
+		// algorithm to choose the best combID from combstats_ TODO
+		long dropCombID = 0; // best combination for dropping
+		float combImpact = -500; // valor
+
+		float stddevcoeff = 1;
+
+		for(unsigned r=0; r < combstats_.size(); r++)
+		{
+			float impact = combstats_[r].total_ - stddevcoeff*combstats_[r].std_;
+			combstats_[r].impact_ = impact;
+
+//			fprintf(stderr, "\tDEBUG impact %f total %f std %f\n",
+//					impact, combstats_[r].total_, stddevcoeff*combstats_[r].std_);
+
+			if(impact > combImpact) // we're working with negative values
+			{
+				combImpact = impact;
+				dropCombID = combstats_[r].combID_;
+			}
+
+		}
+
 		// sum up results
 		fprintf(stderr, "\tsynopsis of combinations:\n");
 		for(unsigned j=0; j<combstats_.size(); j++)
 		{
-			fprintf(stderr, "\t\tcombID %ld:\t total %f avg %f std %f\n",
-					combstats_[j].combID_, combstats_[j].total_, combstats_[j].avg_, combstats_[j].std_);
+			fprintf(stderr, "\t\tcombID %ld:\t total %f avg %f std %f impact %f\n",
+					combstats_[j].combID_, combstats_[j].total_, combstats_[j].avg_, combstats_[j].std_,
+					combstats_[j].impact_);
 		}
 
-
-		// algorithm to choose the best combID from combstats_ TODO
-		long dropCombID=0; // best combination for dropping
-
+		fprintf(stderr, "\tSelecting combID %ld for drop, impact %f\n", dropCombID, combImpact);
 
 		// packet dropping of chosen combID
-
 		std::vector<bool> binComb;
 		dec2bin(dropCombID, &binComb);
 
@@ -816,32 +887,60 @@ WimshMOSScheduler::bufferMOS(void)
 		for(unsigned k=binComb.size(); k<npackets; k++)
 			binComb.push_back(0);
 
+		// kill the packets
 		unsigned int packetid = 0;
 		for(unsigned i=0; i < pdulist_.size(); i++)
 	//		for(unsigned j=0; j < pdulist_[i].size(); j++)
 				for(unsigned k=0; k < pdulist_[i].size(); k++)
-					for(unsigned l=0; l < pdulist_[i][k].size(); l++)
+				{
+					vector<WimaxPdu*>::iterator iter1 = pdulist_[i][k].begin();
+					while( iter1 != pdulist_[i][k].end())
 					{
 						if(binComb[packetid] == TRUE)
 						{
-							WimaxPdu* pdu = pdulist_[i][k][l];
+							WimaxPdu* pdu = *iter1;
 							fprintf (stderr, "\t\tDropping packet fid %d ndx %d id %d size %d\n",
 									pdu->sdu()->flowId(), i, pdu->sdu()->seqnumber(), pdu->size());
 
 							dropPDU(pdu);
-							pdu->sdu()->freePayload();
-							delete pdu->sdu();
-							delete pdu;
-							pdulist_[i][k].erase(pdulist_[i][k].begin()+l);
+//							pdu->sdu()->freePayload();
+//							delete pdu->sdu();
+//							delete pdu;
+							// reduce buffer occupancy
+							sched_->setBufSize(sched_->bufSize() - pdu->size());
+							// erase packet from the pdu list
+							pdulist_[i][k].erase(iter1);
 						}
 						packetid++;
-					}
-
-
-
-
+						++iter1;
+					 }
+				}
 
 	} // end of buffer size check
+
+
+	// re-print the packet list, for tests
+	for(unsigned i=0; i < pdulist_.size(); i++)
+//		for(unsigned j=0; j < pdulist_[i].size(); j++)
+			for(unsigned k=0; k < pdulist_[i].size(); k++)
+				for(unsigned l=0; l < pdulist_[i][k].size(); l++) {
+					if(pdulist_[i][k][l]->sdu()->ip()->datalen()) {
+						if(pdulist_[i][k][l]->sdu()->ip()->userdata()->type() == VOD_DATA) {
+							VideoData* vodinfo_ = (VideoData*)pdulist_[i][k][l]->sdu()->ip()->userdata();
+							fprintf (stderr, "\t\tVOD_DATA\tfid %d ndx %d id %d size %d\tdistortion %f\n",
+									pdulist_[i][k][l]->sdu()->flowId(), i, pdulist_[i][k][l]->sdu()->seqnumber(),
+									pdulist_[i][k][l]->size() ,vodinfo_->distortion());
+						} else if(pdulist_[i][k][l]->sdu()->ip()->userdata()->type() == VOIP_DATA) {
+							fprintf (stderr, "\t\tVOIP_DATA\tfid %d ndx %d id %d size %d\n",
+									pdulist_[i][k][l]->sdu()->flowId(), i, pdulist_[i][k][l]->sdu()->seqnumber(),
+									pdulist_[i][k][l]->size());
+						}
+					} else {
+							fprintf (stderr, "\t\tFTP_DATA\tfid %d ndx %d id %d size %d\n",
+									pdulist_[i][k][l]->sdu()->flowId(), i, pdulist_[i][k][l]->sdu()->seqnumber(),
+									pdulist_[i][k][l]->size());
+					}
+				}
 
 
 	// reconstruct queues

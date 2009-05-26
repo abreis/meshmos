@@ -57,9 +57,9 @@ struct MOSFlowInfo {
 // structure to hold {combID, totalDrop, avgDrop, stdDrop}
 struct CombInfo {
 	long combID_;
-	float total_, avg_, std_;
-	CombInfo(long combID, float total, float avg, float std) {
-		combID_ = combID; total_ = total; avg_ = avg; std_ = std;
+	float total_, avg_, std_, impact_;
+	CombInfo(long combID, float total, float avg, float std, float impact = 0) {
+		combID_ = combID; total_ = total; avg_ = avg; std_ = std; impact_ = impact;
 	}
 };
 
@@ -97,6 +97,8 @@ public:
 	float audioMOS (double delay, float loss);
 	//! Obtain MOS for a video flow
 	float videoMOS (vector<float>* mse, float loss);
+	//! Obtain MOS for a video flow, given only the total lost MSE
+	float mseVideoMOS (float mse, unsigned int nlost, float loss);
 	//! Obtain deltaMOS for a video flow
 	float deltaVideoMOS (vector<float>* mse, vector<float>* dropdist, MOSFlowInfo* flowinfo);
 	//! Obtain MOS for a data flow

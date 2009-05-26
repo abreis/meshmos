@@ -80,6 +80,9 @@ public:
 	//! Return the total buffer occupancy, in bytes.
 	virtual unsigned int bufSize () { return bufSize_; }
 
+	//! Set a new buffer occupancy (for MOS scheduler)
+	virtual void setBufSize (unsigned int newsize) { bufSize_ = newsize; }
+
 	//! Return the maximum buffer size, in bytes.
 	virtual unsigned int maxBufSize () { return maxBufSize_; }
 };

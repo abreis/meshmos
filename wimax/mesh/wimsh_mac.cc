@@ -511,6 +511,25 @@ WimshMac::recvSdu (WimaxSdu* sdu)
 
 		// TODO: final destination of an SDU
 
+		// process statistics for RD scheduler
+		if(sdu->ip()->userdata()->type() == VOD_DATA) {
+			// increase frame count
+			Stat::put ("rd_vod_recv_frames", sdu->flowId(), 1);
+
+			// get the number of lost frames
+			unsigned int nlost = (unsigned int) Stat::get("rd_vod_lost_frames", sdu->flowId());
+			// get the cumulative mse lost
+			float mselost = (float) Stat::get("rd_vod_lost_mse", sdu->flowId());
+			// calculate the loss
+			float loss = (float)nlost / (float)(Stat::get("rd_vod_recv_frames", sdu->flowId()) + nlost);
+
+			// get the new MOS
+			float mos = mosscheduler_->mseVideoMOS(mselost, nlost, loss);
+
+			// update MOS stat
+			Stat::put ("rd_vod_mos", sdu->flowId(), mos);
+		}
+
 
 		HDR_CMN(sdu->ip())->direction () = hdr_cmn::UP;
 		ll_->recv (sdu->ip(), 0);
