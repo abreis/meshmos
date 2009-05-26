@@ -173,6 +173,7 @@ int VODTraceFile::setup()
 			exit(-1);
 		}
 
+		fprintf(stderr, "Dumping trace file contents:\n");
 		for (i = 0, t = trace_; i < nrec_; i++, t++)
 			if (fread((char *)t, sizeof(tracerec), 1, fp) != 1) {
 				printf("VODTraceFile: read failed\n");
@@ -187,6 +188,7 @@ int VODTraceFile::setup()
 				// debug
 				fprintf(stderr, "\n%f %d %f", (float)t->trec_time, t->trec_size, (float)t->trec_dist);
 			}
+		fprintf(stderr, "\nDone.\n");
 
 	}
 

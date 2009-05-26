@@ -623,7 +623,7 @@ WimshMOSScheduler::bufferMOS(void)
 //			buffusage, sched_->maxBufSize(), ((float)buffusage/(float)sched_->maxBufSize())*100 );
 
 	// see how full the buffer is
-	fprintf (stderr, "\tBuffer usage %d/%d, %.2f%%\n",
+	fprintf (stderr, "\tBuffer usage %u/%u, %.2f%%\n",
 			sched_->bufSize(), sched_->maxBufSize(),
 			((float)sched_->bufSize()/(float)sched_->maxBufSize())*100 );
 
@@ -634,11 +634,18 @@ WimshMOSScheduler::bufferMOS(void)
 			for(unsigned k=0; k < pdulist_[i].size(); k++)
 				npackets += pdulist_[i][k].size();
 
-	fprintf (stderr, "\t%d packets in the buffers\n", npackets);
+	fprintf (stderr, "\t%u packets in the buffers\n", npackets);
 
+	// define scheduler aggressiveness here
+	float buffertrigger = 0.70;
+	float buffertarget = 0.50;
+	float reductionmargin = 0.01;
+	unsigned maxcombs = 5000;	// limit the maximum number of combinations to reduce processing time
 
-	if(npackets > 0 && ((float)sched_->bufSize()/(float)sched_->maxBufSize()) > 0.70) // temp, remove when this routine is called on buffer overflow
+	if(npackets > 0 && ((float)sched_->bufSize()/(float)sched_->maxBufSize()) > buffertrigger)
 	{
+		Stat::put ("rd_scheduler_triggered", 0, 1);
+		fprintf (stderr, "\tRD Scheduler Triggered\n");
 
 		/* here, we have:
 		 * pdulist_[i][k][l] -> vector with all packets in the buffers
@@ -647,19 +654,24 @@ WimshMOSScheduler::bufferMOS(void)
 		 * stats_[i] -> flowinfo stats
 		 */
 
+		// compute buffer decrease needs
+		float targetpoint = ( (float)sched_->maxBufSize() ) * buffertarget;
+		float bufferreduction = (float)sched_->bufSize() - targetpoint;
+		unsigned lbound = (unsigned)( bufferreduction - (float)sched_->maxBufSize()*reductionmargin );
+		unsigned rbound = (unsigned)( bufferreduction + (float)sched_->maxBufSize()*reductionmargin );
+//		fprintf(stderr, "\tDEBUG BUFF tgtpoint %f bfreduct %f lbound %u rbound %u\n",
+//				targetpoint, bufferreduction, lbound, rbound);
+
 		// need to get all packet combinations that reduce the buffer by X
 		// combinations represent binary values as to whether the packet has been chosen or not
 		// combinations (2^npackets)
 		long int ncombs = pow(2, npackets);
 		fprintf (stderr, "\tevaluating %ld combinations for size match\n", ncombs);
 
-		unsigned lbound = 1500;
-		unsigned rbound = 2000;
-
-		fprintf (stderr, "\t\tcombination matches for [%d,%d]:\n\t\tID:", lbound, rbound);
+		fprintf (stderr, "\t\tcombination matches for [%u,%u]:\n\t\tID:", lbound, rbound);
 //		std::vector<bool> binComb(npackets, 0);
 		std::vector<long> validCombs;
-		for (long combID = 0; combID < ncombs; combID++)
+		for (long combID = 0; combID < ncombs && validCombs.size() < maxcombs; combID++)
 		{
 			std::vector<bool> binComb;
 			dec2bin(combID, &binComb);
@@ -688,275 +700,286 @@ WimshMOSScheduler::bufferMOS(void)
 		}
 		fprintf (stderr, "\n");
 
-		// here we have: validCombs, with all matching combinations
-		// use dec2bin(combID, &binComb) to get packet references
 
-		fprintf (stderr, "\t%zd combinations matched, processing...\n", validCombs.size());
-
-		// process all combinations
-		// vector to hold CombInfo elements
-		std::vector<CombInfo> combstats_;
-		for(unsigned p=0; p<validCombs.size(); p++)
+		if( validCombs.size() == 0)
+			fprintf (stderr, "\t0 combinations matched, aborting...\n");
+		else
 		{
-			fprintf (stderr, "\t\tcombID %ld:\n", validCombs[p]);
+			// here we have: validCombs, with all matching combinations
+			// use dec2bin(combID, &binComb) to get packet references
+			fprintf (stderr, "\t%zd combinations matched, processing...\n", validCombs.size());
 
+			// process all combinations
+			// vector to hold CombInfo elements
+			std::vector<CombInfo> combstats_;
+			for(unsigned p=0; p<validCombs.size(); p++)
+			{
+				fprintf (stderr, "\t\tcombID %ld:\n", validCombs[p]);
+
+				std::vector<bool> binComb;
+				dec2bin(validCombs[p], &binComb);
+				for(unsigned k=binComb.size(); k<npackets; k++)
+					binComb.push_back(0);
+				unsigned int packetid = 0;
+				std::vector<WimaxPdu*> combPdu;
+				for(unsigned i=0; i < pdulist_.size(); i++)
+	//				for(unsigned j=0; j < pdulist_[i].size(); j++)
+						for(unsigned k=0; k < pdulist_[i].size(); k++)
+							for(unsigned l=0; l < pdulist_[i][k].size(); l++)
+							{
+								if(binComb[packetid] == TRUE)
+								{
+								// print the packet info
+									if(pdulist_[i][k][l]->sdu()->ip()->datalen()) {
+										if(pdulist_[i][k][l]->sdu()->ip()->userdata()->type() == VOD_DATA) {
+											VideoData* vodinfo_ = (VideoData*)pdulist_[i][k][l]->sdu()->ip()->userdata();
+											fprintf (stderr, "\t\t\tVOD_DATA\tfid %d ndx %d id %d size %d\tdistortion %f\n",
+													pdulist_[i][k][l]->sdu()->flowId(), i, pdulist_[i][k][l]->sdu()->seqnumber(),
+													pdulist_[i][k][l]->size() ,vodinfo_->distortion());
+										} else if(pdulist_[i][k][l]->sdu()->ip()->userdata()->type() == VOIP_DATA) {
+											fprintf (stderr, "\t\t\tVOIP_DATA\tfid %d ndx %d id %d size %d\n",
+													pdulist_[i][k][l]->sdu()->flowId(), i, pdulist_[i][k][l]->sdu()->seqnumber(),
+													pdulist_[i][k][l]->size());
+										}
+									} else {
+											fprintf (stderr, "\t\t\tFTP_DATA\tfid %d ndx %d id %d size %d\n",
+													pdulist_[i][k][l]->sdu()->flowId(), i, pdulist_[i][k][l]->sdu()->seqnumber(),
+													pdulist_[i][k][l]->size());
+									}
+								// store the packet for MOS processing
+									combPdu.push_back(pdulist_[i][k][l]);
+								}
+								packetid++;
+							}
+
+
+				// calculate MOS and impact here
+				// vector combPdu is where it's at
+				{
+					// fill a vector with the flowIDs in this packet combination
+					std::vector <int> combfIDs;
+					for(unsigned l=0; l < combPdu.size(); l++)
+					{
+						// vector empty, push
+						if(combfIDs.size() == 0) {
+							combfIDs.push_back(combPdu[l]->sdu()->flowId());
+						} else {
+							// see if the fid is already in the list
+							bool inlist_ = false;
+							for(unsigned int m=0; m < combfIDs.size(); m++) {
+								if(combfIDs[m] == combPdu[l]->sdu()->flowId()) {
+									inlist_ = true;
+								}
+							}
+							// not on the list, push
+							if(!inlist_)
+								combfIDs.push_back(combPdu[l]->sdu()->flowId());
+						}
+					}
+
+					// for each flow, aggregate all of its packets and estimate MOS impact
+					vector<float> combMOSdrop; // stores accumulated MOS variations for this combID
+					for(unsigned l=0; l < combfIDs.size(); l++)
+					{
+						// get the FlowInfo of this flowID
+						unsigned k;
+						for(k=0; stats_[k].fid_ != combfIDs[l]; k++);
+
+						if(stats_[k].traffic_ == M_VOD)
+						{
+							// VOD, sum the distortion of all packets and pass it to deltaVideoMOS
+							vector<float> dropdist; unsigned nCombPackets=0;
+							for(unsigned n=0; n<combPdu.size(); n++) // for each PDU
+							{
+								if(combPdu[n]->sdu()->flowId() == combfIDs[l]) // if it belongs to the current flowID
+								{
+									if(combPdu[n]->sdu()->ip()->userdata()->type() == VOD_DATA) { // and is VOD
+										VideoData* vodinfo_ = (VideoData*)combPdu[n]->sdu()->ip()->userdata();
+										dropdist.push_back(vodinfo_->distortion()); // accumulate distortion
+										nCombPackets++;
+									}
+								}
+							}
+
+							// {fid, dist, packets}: {combfIDs[l], totalDist, nCombPackets}
+							assert(nCombPackets>0);
+
+							// nCombPackets, estimate drop percentage increase, get new MOS
+							float deltaMOS = deltaVideoMOS(&(stats_[k].mse_), &dropdist, &(stats_[k]));
+
+							// associate the deltaMOS to this combID for later processing
+							combMOSdrop.push_back(deltaMOS);
+
+							fprintf(stderr, "\t\t\t(-) VOD  fid %d drop %u delta %f\n",
+									combfIDs[l], nCombPackets, deltaMOS);
+						}
+						else if(stats_[k].traffic_ == M_VOIP)
+						{
+							// VOIP, get the number of packets for error percentage
+							unsigned nCombPackets=0;
+							for(unsigned n=0; n<combPdu.size(); n++) // for each PDU
+								if(combPdu[n]->sdu()->flowId() == combfIDs[l]) // if it belongs to the current flowID
+									nCombPackets++;
+
+							assert(nCombPackets>0);
+
+							// nCombPackets, estimate drop percentage increase, get new MOS
+							float newloss = (float)(stats_[k].lostcount_ + nCombPackets) /
+											(float)(stats_[k].lostcount_ + nCombPackets + stats_[k].count_);
+
+							float newMOS = audioMOS(stats_[k].delay_, newloss);
+							float deltaMOS = newMOS - stats_[k].mos_;
+
+							// associate the deltaMOS to this combID for later processing
+							combMOSdrop.push_back(deltaMOS);
+
+							fprintf(stderr, "\t\t\t(-) VOIP fid %d drop %d delta %f oldMOS %f newMOS %f\n",
+									combfIDs[l], nCombPackets, deltaMOS, stats_[k].mos_, newMOS);
+
+						}
+						else
+						{
+							// FTP
+							// TODO: nothing for now
+						}
+
+					} // end of for each fID of this comb
+
+
+					// process list of distortion impacts, combMOSdrop[]
+					{
+						// total drop
+						float totalMOSdrop = 0;
+						for(unsigned i=0; i<combMOSdrop.size(); i++)
+							totalMOSdrop+=combMOSdrop[i];
+
+						// average drop
+						float avgMOSdrop = totalMOSdrop / combMOSdrop.size();
+
+						// standard deviation
+						float stdMOSdrop = stddev(&combMOSdrop);
+
+						// store info on vector combstats_
+						CombInfo tempcombinfo(validCombs[p], totalMOSdrop, avgMOSdrop, stdMOSdrop);
+						combstats_.push_back(tempcombinfo);
+
+						fprintf(stderr, "\t\t\t(>) combID %ld flows impacted %zd MOSimpact total %f avg %f std %f\n",
+								validCombs[p], combMOSdrop.size(), totalMOSdrop, avgMOSdrop, stdMOSdrop);
+					}
+
+				} // end of MOS calculations
+
+			} // end of combination packet listing
+
+			// algorithm to choose the best combID from combstats_ TODO
+			long dropCombID = 0; // best combination for dropping
+			float combImpact = -500; // valor
+
+			float stddevcoeff = 1;
+
+			for(unsigned r=0; r < combstats_.size(); r++)
+			{
+				float impact = combstats_[r].total_ - stddevcoeff*combstats_[r].std_;
+				combstats_[r].impact_ = impact;
+
+	//			fprintf(stderr, "\tDEBUG impact %f total %f std %f\n",
+	//					impact, combstats_[r].total_, stddevcoeff*combstats_[r].std_);
+
+				if(impact > combImpact) // we're working with negative values
+				{
+					combImpact = impact;
+					dropCombID = combstats_[r].combID_;
+				}
+
+			}
+
+			// sum up results
+			fprintf(stderr, "\tsynopsis of combinations:\n");
+			for(unsigned j=0; j<combstats_.size(); j++)
+			{
+				fprintf(stderr, "\t\tcombID %ld:\t total %f avg %f std %f impact %f\n",
+						combstats_[j].combID_, combstats_[j].total_, combstats_[j].avg_, combstats_[j].std_,
+						combstats_[j].impact_);
+			}
+
+			fprintf(stderr, "\tSelecting combID %ld for drop, impact %f\n", dropCombID, combImpact);
+
+			// packet dropping of chosen combID
 			std::vector<bool> binComb;
-			dec2bin(validCombs[p], &binComb);
+			dec2bin(dropCombID, &binComb);
+
+			// fill the binComb for missing zeroes
 			for(unsigned k=binComb.size(); k<npackets; k++)
 				binComb.push_back(0);
+
+			// kill the packets
 			unsigned int packetid = 0;
-			std::vector<WimaxPdu*> combPdu;
 			for(unsigned i=0; i < pdulist_.size(); i++)
-//				for(unsigned j=0; j < pdulist_[i].size(); j++)
+		//		for(unsigned j=0; j < pdulist_[i].size(); j++)
 					for(unsigned k=0; k < pdulist_[i].size(); k++)
-						for(unsigned l=0; l < pdulist_[i][k].size(); l++)
+					{
+						vector<WimaxPdu*>::iterator iter1 = pdulist_[i][k].begin();
+						while( iter1 != pdulist_[i][k].end())
 						{
 							if(binComb[packetid] == TRUE)
 							{
-							// print the packet info
-								if(pdulist_[i][k][l]->sdu()->ip()->datalen()) {
-									if(pdulist_[i][k][l]->sdu()->ip()->userdata()->type() == VOD_DATA) {
-										VideoData* vodinfo_ = (VideoData*)pdulist_[i][k][l]->sdu()->ip()->userdata();
-										fprintf (stderr, "\t\t\tVOD_DATA\tfid %d ndx %d id %d size %d\tdistortion %f\n",
-												pdulist_[i][k][l]->sdu()->flowId(), i, pdulist_[i][k][l]->sdu()->seqnumber(),
-												pdulist_[i][k][l]->size() ,vodinfo_->distortion());
-									} else if(pdulist_[i][k][l]->sdu()->ip()->userdata()->type() == VOIP_DATA) {
-										fprintf (stderr, "\t\t\tVOIP_DATA\tfid %d ndx %d id %d size %d\n",
-												pdulist_[i][k][l]->sdu()->flowId(), i, pdulist_[i][k][l]->sdu()->seqnumber(),
-												pdulist_[i][k][l]->size());
-									}
-								} else {
-										fprintf (stderr, "\t\t\tFTP_DATA\tfid %d ndx %d id %d size %d\n",
-												pdulist_[i][k][l]->sdu()->flowId(), i, pdulist_[i][k][l]->sdu()->seqnumber(),
-												pdulist_[i][k][l]->size());
-								}
-							// store the packet for MOS processing
-								combPdu.push_back(pdulist_[i][k][l]);
-							}
+								WimaxPdu* pdu = *iter1;
+								fprintf (stderr, "\t\tDropping packet fid %d ndx %d id %d size %d type %d\n",
+										pdu->sdu()->flowId(), i, pdu->sdu()->seqnumber(),
+										pdu->size(), pdu->sdu()->ip()->userdata()->type());
+
+								// stat the lost packet as killed by the scheduler
+								Stat::put ("rd_packet_lost_scheduler", pdu->sdu()->flowId(), 1);
+
+								dropPDU(pdu);
+	//							pdu->sdu()->freePayload();
+	//							delete pdu->sdu();
+	//							delete pdu;
+
+								// reduce buffer occupancy
+								// TODO: this is not the way to kill the packets
+								sched_->setBufSize(sched_->bufSize() - pdu->size());
+
+								// erase packet from the pdu list
+								pdulist_[i][k].erase(iter1);
+							} else
+							{ ++iter1; } // iter1 is autoincremented after erase()
 							packetid++;
-						}
-
-
-			// calculate MOS and impact here
-			// vector combPdu is where it's at
-			{
-				// fill a vector with the flowIDs in this packet combination
-				std::vector <int> combfIDs;
-				for(unsigned l=0; l < combPdu.size(); l++)
-				{
-					// vector empty, push
-					if(combfIDs.size() == 0) {
-						combfIDs.push_back(combPdu[l]->sdu()->flowId());
-					} else {
-						// see if the fid is already in the list
-						bool inlist_ = false;
-						for(unsigned int m=0; m < combfIDs.size(); m++) {
-							if(combfIDs[m] == combPdu[l]->sdu()->flowId()) {
-								inlist_ = true;
-							}
-						}
-						// not on the list, push
-						if(!inlist_)
-							combfIDs.push_back(combPdu[l]->sdu()->flowId());
-					}
-				}
-
-				// for each flow, aggregate all of its packets and estimate MOS impact
-				vector<float> combMOSdrop; // stores accumulated MOS variations for this combID
-				for(unsigned l=0; l < combfIDs.size(); l++)
-				{
-					// get the FlowInfo of this flowID
-					unsigned k;
-					for(k=0; stats_[k].fid_ != combfIDs[l]; k++);
-
-					if(stats_[k].traffic_ == M_VOD)
-					{
-						// VOD, sum the distortion of all packets and pass it to deltaVideoMOS
-						vector<float> dropdist; unsigned nCombPackets=0;
-						for(unsigned n=0; n<combPdu.size(); n++) // for each PDU
-						{
-							if(combPdu[n]->sdu()->flowId() == combfIDs[l]) // if it belongs to the current flowID
-							{
-								if(combPdu[n]->sdu()->ip()->userdata()->type() == VOD_DATA) { // and is VOD
-									VideoData* vodinfo_ = (VideoData*)combPdu[n]->sdu()->ip()->userdata();
-									dropdist.push_back(vodinfo_->distortion()); // accumulate distortion
-									nCombPackets++;
-								}
-							}
-						}
-
-						// {fid, dist, packets}: {combfIDs[l], totalDist, nCombPackets}
-						assert(nCombPackets>0);
-
-						// nCombPackets, estimate drop percentage increase, get new MOS
-						float deltaMOS = deltaVideoMOS(&(stats_[k].mse_), &dropdist, &(stats_[k]));
-
-						// associate the deltaMOS to this combID for later processing
-						combMOSdrop.push_back(deltaMOS);
-
-						fprintf(stderr, "\t\t\t(-) VOD  fid %d drop %d delta %f\n",
-								combfIDs[l], nCombPackets, deltaMOS);
-					}
-					else if(stats_[k].traffic_ == M_VOIP)
-					{
-						// VOIP, get the number of packets for error percentage
-						unsigned nCombPackets=0;
-						for(unsigned n=0; n<combPdu.size(); n++) // for each PDU
-							if(combPdu[n]->sdu()->flowId() == combfIDs[l]) // if it belongs to the current flowID
-								nCombPackets++;
-
-						assert(nCombPackets>0);
-
-						// nCombPackets, estimate drop percentage increase, get new MOS
-						float newloss = (float)(stats_[k].lostcount_ + nCombPackets) /
-										(float)(stats_[k].lostcount_ + nCombPackets + stats_[k].count_);
-
-						float newMOS = audioMOS(stats_[k].delay_, newloss);
-						float deltaMOS = newMOS - stats_[k].mos_;
-
-						// associate the deltaMOS to this combID for later processing
-						combMOSdrop.push_back(deltaMOS);
-
-						fprintf(stderr, "\t\t\t(-) VOIP fid %d drop %d delta %f oldMOS %f newMOS %f\n",
-								combfIDs[l], nCombPackets, deltaMOS, stats_[k].mos_, newMOS);
-
-					}
-					else
-					{
-						// FTP
-						// TODO: nothing for now
+						 }
 					}
 
-				} // end of for each fID of this comb
+		} // end of buffer size check
 
+		// re-print the packet list, for tests
+		fprintf (stderr, "\tResulting buffer:\n");
 
-				// process list of distortion impacts, combMOSdrop[]
-				{
-					// total drop
-					float totalMOSdrop = 0;
-					for(unsigned i=0; i<combMOSdrop.size(); i++)
-						totalMOSdrop+=combMOSdrop[i];
+		// see how full the buffer is
+		fprintf (stderr, "\t\tBuffer usage %u/%u, %.2f%%\n",
+				sched_->bufSize(), sched_->maxBufSize(),
+				((float)sched_->bufSize()/(float)sched_->maxBufSize())*100 );
 
-					// average drop
-					float avgMOSdrop = totalMOSdrop / combMOSdrop.size();
-
-					// standard deviation
-					float stdMOSdrop = stddev(&combMOSdrop);
-
-					// store info on vector combstats_
-					CombInfo tempcombinfo(validCombs[p], totalMOSdrop, avgMOSdrop, stdMOSdrop);
-					combstats_.push_back(tempcombinfo);
-
-					fprintf(stderr, "\t\t\t(>) combID %ld flows impacted %zd MOSimpact total %f avg %f std %f\n",
-							validCombs[p], combMOSdrop.size(), totalMOSdrop, avgMOSdrop, stdMOSdrop);
-				}
-
-			} // end of MOS calculations
-
-		} // end of combination packet listing
-
-		// algorithm to choose the best combID from combstats_ TODO
-		long dropCombID = 0; // best combination for dropping
-		float combImpact = -500; // valor
-
-		float stddevcoeff = 1;
-
-		for(unsigned r=0; r < combstats_.size(); r++)
-		{
-			float impact = combstats_[r].total_ - stddevcoeff*combstats_[r].std_;
-			combstats_[r].impact_ = impact;
-
-//			fprintf(stderr, "\tDEBUG impact %f total %f std %f\n",
-//					impact, combstats_[r].total_, stddevcoeff*combstats_[r].std_);
-
-			if(impact > combImpact) // we're working with negative values
-			{
-				combImpact = impact;
-				dropCombID = combstats_[r].combID_;
-			}
-
-		}
-
-		// sum up results
-		fprintf(stderr, "\tsynopsis of combinations:\n");
-		for(unsigned j=0; j<combstats_.size(); j++)
-		{
-			fprintf(stderr, "\t\tcombID %ld:\t total %f avg %f std %f impact %f\n",
-					combstats_[j].combID_, combstats_[j].total_, combstats_[j].avg_, combstats_[j].std_,
-					combstats_[j].impact_);
-		}
-
-		fprintf(stderr, "\tSelecting combID %ld for drop, impact %f\n", dropCombID, combImpact);
-
-		// packet dropping of chosen combID
-		std::vector<bool> binComb;
-		dec2bin(dropCombID, &binComb);
-
-		// fill the binComb for missing zeroes
-		for(unsigned k=binComb.size(); k<npackets; k++)
-			binComb.push_back(0);
-
-		// kill the packets
-		unsigned int packetid = 0;
 		for(unsigned i=0; i < pdulist_.size(); i++)
 	//		for(unsigned j=0; j < pdulist_[i].size(); j++)
 				for(unsigned k=0; k < pdulist_[i].size(); k++)
-				{
-					vector<WimaxPdu*>::iterator iter1 = pdulist_[i][k].begin();
-					while( iter1 != pdulist_[i][k].end())
-					{
-						if(binComb[packetid] == TRUE)
-						{
-							WimaxPdu* pdu = *iter1;
-							fprintf (stderr, "\t\tDropping packet fid %d ndx %d id %d size %d\n",
-									pdu->sdu()->flowId(), i, pdu->sdu()->seqnumber(), pdu->size());
-
-							dropPDU(pdu);
-//							pdu->sdu()->freePayload();
-//							delete pdu->sdu();
-//							delete pdu;
-							// reduce buffer occupancy
-							sched_->setBufSize(sched_->bufSize() - pdu->size());
-							// erase packet from the pdu list
-							pdulist_[i][k].erase(iter1);
-						} else
-						{ ++iter1; } // iter1 is autoincremented after erase()
-						packetid++;
-					 }
-				}
-
-	} // end of buffer size check
-
-	// re-print the packet list, for tests
-	fprintf (stderr, "\tResulting buffer:\n");
-
-	// see how full the buffer is
-	fprintf (stderr, "\t\tBuffer usage %d/%d, %.2f%%\n",
-			sched_->bufSize(), sched_->maxBufSize(),
-			((float)sched_->bufSize()/(float)sched_->maxBufSize())*100 );
-
-	for(unsigned i=0; i < pdulist_.size(); i++)
-//		for(unsigned j=0; j < pdulist_[i].size(); j++)
-			for(unsigned k=0; k < pdulist_[i].size(); k++)
-				for(unsigned l=0; l < pdulist_[i][k].size(); l++) {
-					if(pdulist_[i][k][l]->sdu()->ip()->datalen()) {
-						if(pdulist_[i][k][l]->sdu()->ip()->userdata()->type() == VOD_DATA) {
-							VideoData* vodinfo_ = (VideoData*)pdulist_[i][k][l]->sdu()->ip()->userdata();
-							fprintf (stderr, "\t\tVOD_DATA\tfid %d ndx %d id %d size %d\tdistortion %f\n",
-									pdulist_[i][k][l]->sdu()->flowId(), i, pdulist_[i][k][l]->sdu()->seqnumber(),
-									pdulist_[i][k][l]->size() ,vodinfo_->distortion());
-						} else if(pdulist_[i][k][l]->sdu()->ip()->userdata()->type() == VOIP_DATA) {
-							fprintf (stderr, "\t\tVOIP_DATA\tfid %d ndx %d id %d size %d\n",
-									pdulist_[i][k][l]->sdu()->flowId(), i, pdulist_[i][k][l]->sdu()->seqnumber(),
-									pdulist_[i][k][l]->size());
+					for(unsigned l=0; l < pdulist_[i][k].size(); l++) {
+						if(pdulist_[i][k][l]->sdu()->ip()->datalen()) {
+							if(pdulist_[i][k][l]->sdu()->ip()->userdata()->type() == VOD_DATA) {
+								VideoData* vodinfo_ = (VideoData*)pdulist_[i][k][l]->sdu()->ip()->userdata();
+								fprintf (stderr, "\t\tVOD_DATA\tfid %d ndx %d id %d size %d\tdistortion %f\n",
+										pdulist_[i][k][l]->sdu()->flowId(), i, pdulist_[i][k][l]->sdu()->seqnumber(),
+										pdulist_[i][k][l]->size() ,vodinfo_->distortion());
+							} else if(pdulist_[i][k][l]->sdu()->ip()->userdata()->type() == VOIP_DATA) {
+								fprintf (stderr, "\t\tVOIP_DATA\tfid %d ndx %d id %d size %d\n",
+										pdulist_[i][k][l]->sdu()->flowId(), i, pdulist_[i][k][l]->sdu()->seqnumber(),
+										pdulist_[i][k][l]->size());
+							}
+						} else {
+								fprintf (stderr, "\t\tFTP_DATA\tfid %d ndx %d id %d size %d\n",
+										pdulist_[i][k][l]->sdu()->flowId(), i, pdulist_[i][k][l]->sdu()->seqnumber(),
+										pdulist_[i][k][l]->size());
 						}
-					} else {
-							fprintf (stderr, "\t\tFTP_DATA\tfid %d ndx %d id %d size %d\n",
-									pdulist_[i][k][l]->sdu()->flowId(), i, pdulist_[i][k][l]->sdu()->seqnumber(),
-									pdulist_[i][k][l]->size());
 					}
-				}
-
+	}
 
 	// reconstruct queues
 	for(unsigned i=0; i < mac_->nneighs(); i++) {
@@ -986,7 +1009,7 @@ MOStimer::expire(Event *e) {
 	a_->trigger();
 
 	// reschedule
-	a_->gettimer().resched(0.050); // a_->interval_ (and define via TCL)
+	a_->gettimer().resched(0.010); // a_->interval_ (and define via TCL)
 }
 
 void

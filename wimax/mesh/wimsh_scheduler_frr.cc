@@ -111,10 +111,12 @@ WimshSchedulerFairRR::addPdu (WimaxPdu* pdu)
 	const unsigned char prio = pdu->hdr().meshCid().priority();
 
 	// if the size of this PDU overflows the buffer size, drop the PDU/SDU/IP
-	if ( ( bufferSharingMode_ == SHARED &&
-			 bufSize_ + pdu->size() > maxBufSize_ ) ||
-		  ( bufferSharingMode_ == PER_LINK &&
-			 link_[ndx].size_ + pdu->size() > maxBufSize_) ) {
+	if ( ( bufferSharingMode_ == SHARED && bufSize_ + pdu->size() > maxBufSize_ ) ||
+		  ( bufferSharingMode_ == PER_LINK && link_[ndx].size_ + pdu->size() > maxBufSize_) )
+	{
+		fprintf(stderr, "DEBUG packet drop due to overflow buff %u size %u\n",bufSize_, pdu->size());
+		// stat the lost packet for the RD sched
+		Stat::put ("rd_packet_lost_overflow", pdu->sdu()->flowId(), 1);
 		// notify the MAC layer of the pdu about to be dropped
 		mac_->dropPDU(pdu);
 		drop (pdu);
@@ -280,7 +282,11 @@ WimshSchedulerFairRR::serve (WimshFragmentationBuffer& frag,
 		// update the buffer occupancies
 		flow.size_ -= pdu->size();          // flow
 		link_[ndx].size_ -= pdu->size();    // link
-		bufSize_ -= pdu->size();            // MAC
+
+		if(bufSize_ < pdu->size())	// TODO: this is a hack, something's missing
+			bufSize_ = 0;
+		else
+			bufSize_ -= pdu->size();            // MAC
 
 		Stat::put ("wimsh_bufsize_mac_a", mac_->index(), bufSize_ );
 		Stat::put ("wimsh_bufsize_mac_d", mac_->index(), bufSize_ );
