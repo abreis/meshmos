@@ -197,8 +197,8 @@ WimshMOSScheduler::dropPDU(WimaxPdu* pdu)
  		break;
  	}
 
-	fprintf(stderr, "%.9f WMOS::dropPDU    [%d] Received PDU fid %d seq %d \n",
-			NOW, mac_->nodeId(), sdu->flowId(), sdu->seqnumber());
+//	fprintf(stderr, "%.9f WMOS::dropPDU    [%d] Received PDU fid %d seq %d \n",
+//			NOW, mac_->nodeId(), sdu->flowId(), sdu->seqnumber());
 
 }
 
@@ -311,7 +311,9 @@ WimshMOSScheduler::videoMOS (vector<float>* mse, float loss)
 	float ql = 1 / ( 1 + exp(b1*(psnr-b2)) );
 
 	// map quality to MOS = Quality*(-3.5)+4.5
-	float mos = ql * 3.5 + 4.5;
+	float mos = ql * (-3.5) + 4.5;
+
+//	fprintf(stderr, "MOS DEBUG psnr %f ql %f mos %f\n", psnr, ql, mos);
 
 //	// linear mapping from PSNR 20dB (MOS 1) to 40dB (MOS 5)
 //	float mos = psnr*0.20 - 3;
@@ -364,7 +366,9 @@ WimshMOSScheduler::mseVideoMOS (float mse, unsigned int nlost, float loss)
 	float ql = 1 / ( 1 + exp(b1*(psnr-b2)) );
 
 	// map quality to MOS = Quality*(-3.5)+4.5
-	float mos = ql * 3.5 + 4.5;
+	float mos = ql * (-3.5) + 4.5;
+
+//	fprintf(stderr, "MOS DEBUG psnr %f ql %f mos %f\n", psnr, ql, mos);
 
 //	// linear mapping from PSNR 20dB (MOS 1) to 40dB (MOS 5)
 //	float mos = psnr*0.20 - 3;
@@ -607,17 +611,21 @@ WimshMOSScheduler::bufferMOS(void)
 		fprintf (stderr, "\t\tfid %d traffic %s mos %f\n", stats_[i].fid_, traffic.c_str(), stats_[i].mos_);
 	}
 
-	// see how full the buffer is
-	unsigned int buffusage = 0;
-	for(unsigned i=0; i < pdulist_.size(); i++)
-//		for(unsigned j=0; j < pdulist_[i].size(); j++)
-			for(unsigned k=0; k < pdulist_[i].size(); k++)
-				for(unsigned l=0; l < pdulist_[i][k].size(); l++) {
-					buffusage += pdulist_[i][k][l]->size();
-				}
-	fprintf (stderr, "\tBuffer usage %d/%d, %.2f%%\n",
-			buffusage, sched_->maxBufSize(), ((float)buffusage/(float)sched_->maxBufSize())*100 );
+//	// see how full the buffer is
+//	unsigned int buffusage = 0;
+//	for(unsigned i=0; i < pdulist_.size(); i++)
+////		for(unsigned j=0; j < pdulist_[i].size(); j++)
+//			for(unsigned k=0; k < pdulist_[i].size(); k++)
+//				for(unsigned l=0; l < pdulist_[i][k].size(); l++) {
+//					buffusage += pdulist_[i][k][l]->size();
+//				}
+//	fprintf (stderr, "\tBuffer usage %d/%d, %.2f%%\n",
+//			buffusage, sched_->maxBufSize(), ((float)buffusage/(float)sched_->maxBufSize())*100 );
 
+	// see how full the buffer is
+	fprintf (stderr, "\tBuffer usage %d/%d, %.2f%%\n",
+			sched_->bufSize(), sched_->maxBufSize(),
+			((float)sched_->bufSize()/(float)sched_->maxBufSize())*100 );
 
 	// get the number of packets in the buffers
 	unsigned int npackets = 0;
@@ -628,7 +636,8 @@ WimshMOSScheduler::bufferMOS(void)
 
 	fprintf (stderr, "\t%d packets in the buffers\n", npackets);
 
-	if(npackets > 0 && ((float)buffusage/(float)sched_->maxBufSize()) > 0.70) // temp, remove when this routine is called on buffer overflow
+
+	if(npackets > 0 && ((float)sched_->bufSize()/(float)sched_->maxBufSize()) > 0.70) // temp, remove when this routine is called on buffer overflow
 	{
 
 		/* here, we have:
@@ -910,16 +919,22 @@ WimshMOSScheduler::bufferMOS(void)
 							sched_->setBufSize(sched_->bufSize() - pdu->size());
 							// erase packet from the pdu list
 							pdulist_[i][k].erase(iter1);
-						}
+						} else
+						{ ++iter1; } // iter1 is autoincremented after erase()
 						packetid++;
-						++iter1;
 					 }
 				}
 
 	} // end of buffer size check
 
-
 	// re-print the packet list, for tests
+	fprintf (stderr, "\tResulting buffer:\n");
+
+	// see how full the buffer is
+	fprintf (stderr, "\t\tBuffer usage %d/%d, %.2f%%\n",
+			sched_->bufSize(), sched_->maxBufSize(),
+			((float)sched_->bufSize()/(float)sched_->maxBufSize())*100 );
+
 	for(unsigned i=0; i < pdulist_.size(); i++)
 //		for(unsigned j=0; j < pdulist_[i].size(); j++)
 			for(unsigned k=0; k < pdulist_[i].size(); k++)
