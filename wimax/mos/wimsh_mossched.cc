@@ -133,7 +133,8 @@ WimshMOSScheduler::statSDU(WimaxSdu* sdu)
 
  	case M_VOD:
  		stats_[n].mos_ = videoMOS( &(stats_[n].mse_), stats_[n].loss_ );
- 		break;
+// 		stats_[n].mos_ = Stat::get ("rd_vod_mos", sdu->flowId());
+		break;
 
  	default:
  		break;
@@ -191,6 +192,7 @@ WimshMOSScheduler::dropPDU(WimaxPdu* pdu)
 
  	case M_VOD:
  		stats_[n].mos_ = videoMOS( &(stats_[n].mse_), stats_[n].loss_ );
+// 		stats_[n].mos_ = Stat::get ("rd_vod_mos", sdu->flowId());
  		break;
 
  	default:
@@ -451,7 +453,7 @@ WimshMOSScheduler::trigger(void)
 	fprintf(stderr, "%.9f WMOS::trigger    [%d] MOS Scheduler timer fired\n",
 			NOW, mac_->nodeId());
 
-	bool enabled = FALSE;
+	bool enabled = TRUE;
 	// run the buffer algorithms
 	if( enabled )
 		bufferMOS();
@@ -502,7 +504,8 @@ WimshMOSScheduler::bufferMOS(void)
 //			fprintf (stderr, "\tGot a VOD_DATA packet, distortion %f\n", vodinfo_->distortion());
 //		}
 
-	fprintf (stderr, "\tPackets in the buffers:\n");
+	if(WimaxDebug::trace("WMOS::buffMOS2"))
+		fprintf (stderr, "\tPackets in the buffers:\n");
 
 	// vector array to store all PDUs in the buffers
 	// [ndx][serv][queueindex][pdu]
@@ -549,28 +552,31 @@ WimshMOSScheduler::bufferMOS(void)
 	}
 
 
-	// show a list of all VOD_DATA packets in this node's buffers
-	for(unsigned i=0; i < pdulist_.size(); i++)
-//		for(unsigned j=0; j < pdulist_[i].size(); j++)
-			for(unsigned k=0; k < pdulist_[i].size(); k++)
-				for(unsigned l=0; l < pdulist_[i][k].size(); l++) {
-					if(pdulist_[i][k][l]->sdu()->ip()->datalen()) {
-						if(pdulist_[i][k][l]->sdu()->ip()->userdata()->type() == VOD_DATA) {
-							VideoData* vodinfo_ = (VideoData*)pdulist_[i][k][l]->sdu()->ip()->userdata();
-							fprintf (stderr, "\t\tVOD_DATA\tfid %d ndx %d id %d size %d\tdistortion %f\n",
-									pdulist_[i][k][l]->sdu()->flowId(), i, pdulist_[i][k][l]->sdu()->seqnumber(),
-									pdulist_[i][k][l]->size() ,vodinfo_->distortion());
-						} else if(pdulist_[i][k][l]->sdu()->ip()->userdata()->type() == VOIP_DATA) {
-							fprintf (stderr, "\t\tVOIP_DATA\tfid %d ndx %d id %d size %d\n",
-									pdulist_[i][k][l]->sdu()->flowId(), i, pdulist_[i][k][l]->sdu()->seqnumber(),
-									pdulist_[i][k][l]->size());
+	if(WimaxDebug::trace("WMOS::buffMOS2"))
+	{
+		// show a list of all VOD_DATA packets in this node's buffers
+		for(unsigned i=0; i < pdulist_.size(); i++)
+	//		for(unsigned j=0; j < pdulist_[i].size(); j++)
+				for(unsigned k=0; k < pdulist_[i].size(); k++)
+					for(unsigned l=0; l < pdulist_[i][k].size(); l++) {
+						if(pdulist_[i][k][l]->sdu()->ip()->datalen()) {
+							if(pdulist_[i][k][l]->sdu()->ip()->userdata()->type() == VOD_DATA) {
+								VideoData* vodinfo_ = (VideoData*)pdulist_[i][k][l]->sdu()->ip()->userdata();
+								fprintf (stderr, "\t\tVOD_DATA\tfid %d ndx %d id %d size %d\tdistortion %f\n",
+										pdulist_[i][k][l]->sdu()->flowId(), i, pdulist_[i][k][l]->sdu()->seqnumber(),
+										pdulist_[i][k][l]->size() ,vodinfo_->distortion());
+							} else if(pdulist_[i][k][l]->sdu()->ip()->userdata()->type() == VOIP_DATA) {
+								fprintf (stderr, "\t\tVOIP_DATA\tfid %d ndx %d id %d size %d\n",
+										pdulist_[i][k][l]->sdu()->flowId(), i, pdulist_[i][k][l]->sdu()->seqnumber(),
+										pdulist_[i][k][l]->size());
+							}
+						} else {
+								fprintf (stderr, "\t\tFTP_DATA\tfid %d ndx %d id %d size %d\n",
+										pdulist_[i][k][l]->sdu()->flowId(), i, pdulist_[i][k][l]->sdu()->seqnumber(),
+										pdulist_[i][k][l]->size());
 						}
-					} else {
-							fprintf (stderr, "\t\tFTP_DATA\tfid %d ndx %d id %d size %d\n",
-									pdulist_[i][k][l]->sdu()->flowId(), i, pdulist_[i][k][l]->sdu()->seqnumber(),
-									pdulist_[i][k][l]->size());
 					}
-				}
+	}
 
 	// fill a vector with all flow ids of the packets in the buffers
 	std::vector <int> flowids_;
@@ -678,7 +684,8 @@ WimshMOSScheduler::bufferMOS(void)
 
 		fprintf (stderr, "\tevaluating %ld combinations for size match\n", ncombs);
 
-		fprintf (stderr, "\t\tcombination matches for [%u,%u]:\n\t\tID:", lbound, rbound);
+		if(WimaxDebug::trace("WMOS::buffMOS2"))
+			fprintf (stderr, "\t\tcombination matches for [%u,%u]:\n\t\tID:", lbound, rbound);
 //		std::vector<bool> binComb(npackets, 0);
 		std::vector<long> validCombs;
 		for (long combID = 0; combID < ncombs && validCombs.size() < maxcombs; combID++)
@@ -705,7 +712,8 @@ WimshMOSScheduler::bufferMOS(void)
 
 			if(combsize > lbound && combsize < rbound) {
 				validCombs.push_back(combID);
-				fprintf (stderr, " %ld", combID);
+				if(WimaxDebug::trace("WMOS::buffMOS2"))
+					fprintf (stderr, " %ld", combID);
 			}
 		}
 		fprintf (stderr, "\n");
@@ -724,7 +732,8 @@ WimshMOSScheduler::bufferMOS(void)
 			std::vector<CombInfo> combstats_;
 			for(unsigned p=0; p<validCombs.size(); p++)
 			{
-				fprintf (stderr, "\t\tcombID %ld:\n", validCombs[p]);
+				if(WimaxDebug::trace("WMOS::buffMOS2"))
+					fprintf (stderr, "\t\tcombID %ld:\n", validCombs[p]);
 
 				std::vector<bool> binComb;
 				dec2bin(validCombs[p], &binComb);
@@ -791,6 +800,9 @@ WimshMOSScheduler::bufferMOS(void)
 					}
 
 					// for each flow, aggregate all of its packets and estimate MOS impact
+
+					float mosweight = -0.025; // greater impact to flows w/ good MOS
+
 					vector<float> combMOSdrop; // stores accumulated MOS variations for this combID
 					for(unsigned l=0; l < combfIDs.size(); l++)
 					{
@@ -820,11 +832,26 @@ WimshMOSScheduler::bufferMOS(void)
 							// nCombPackets, estimate drop percentage increase, get new MOS
 							float deltaMOS = deltaVideoMOS(&(stats_[k].mse_), &dropdist, &(stats_[k]));
 
+							// apply a weight to this deltaMOS, based on the flow's MOS
+							{
+								// get the FlowInfo
+								unsigned r=0;
+								for(; r<stats_.size(); r++)
+									if(stats_[r].fid_ == combfIDs[l])
+										break;
+								// get the MOS
+								float flowMOS = stats_[r].mos_;
+
+								// apply the weight
+								deltaMOS += (mosweight*flowMOS); // mosweight should be negative
+							}
+
 							// associate the deltaMOS to this combID for later processing
 							combMOSdrop.push_back(deltaMOS);
 
-							fprintf(stderr, "\t\t\t(-) VOD  fid %d drop %u delta %f\n",
-									combfIDs[l], nCombPackets, deltaMOS);
+							if(WimaxDebug::trace("WMOS::buffMOS2"))
+								fprintf(stderr, "\t\t\t(-) VOD  fid %d drop %u delta %f\n",
+										combfIDs[l], nCombPackets, deltaMOS);
 						}
 						else if(stats_[k].traffic_ == M_VOIP)
 						{
@@ -846,8 +873,9 @@ WimshMOSScheduler::bufferMOS(void)
 							// associate the deltaMOS to this combID for later processing
 							combMOSdrop.push_back(deltaMOS);
 
-							fprintf(stderr, "\t\t\t(-) VOIP fid %d drop %d delta %f oldMOS %f newMOS %f\n",
-									combfIDs[l], nCombPackets, deltaMOS, stats_[k].mos_, newMOS);
+							if(WimaxDebug::trace("WMOS::buffMOS2"))
+								fprintf(stderr, "\t\t\t(-) VOIP fid %d drop %d delta %f oldMOS %f newMOS %f\n",
+										combfIDs[l], nCombPackets, deltaMOS, stats_[k].mos_, newMOS);
 
 						}
 						else
@@ -876,8 +904,9 @@ WimshMOSScheduler::bufferMOS(void)
 						CombInfo tempcombinfo(validCombs[p], totalMOSdrop, avgMOSdrop, stdMOSdrop);
 						combstats_.push_back(tempcombinfo);
 
-						fprintf(stderr, "\t\t\t(>) combID %ld flows impacted %zd MOSimpact total %f avg %f std %f\n",
-								validCombs[p], combMOSdrop.size(), totalMOSdrop, avgMOSdrop, stdMOSdrop);
+						if(WimaxDebug::trace("WMOS::buffMOS2"))
+							fprintf(stderr, "\t\t\t(>) combID %ld flows impacted %zd MOSimpact total %f avg %f std %f\n",
+									validCombs[p], combMOSdrop.size(), totalMOSdrop, avgMOSdrop, stdMOSdrop);
 					}
 
 				} // end of MOS calculations
@@ -907,15 +936,19 @@ WimshMOSScheduler::bufferMOS(void)
 			}
 
 			// sum up results
-			fprintf(stderr, "\tsynopsis of combinations:\n");
-			for(unsigned j=0; j<combstats_.size(); j++)
+			if(WimaxDebug::trace("WMOS::buffMOS1"))
 			{
-				fprintf(stderr, "\t\tcombID %ld:\t total %f avg %f std %f impact %f\n",
-						combstats_[j].combID_, combstats_[j].total_, combstats_[j].avg_, combstats_[j].std_,
-						combstats_[j].impact_);
+				fprintf(stderr, "\tsynopsis of combinations:\n");
+				for(unsigned j=0; j<combstats_.size(); j++)
+				{
+					fprintf(stderr, "\t\tcombID %ld:\t total %f avg %f std %f impact %f\n",
+							combstats_[j].combID_, combstats_[j].total_, combstats_[j].avg_, combstats_[j].std_,
+							combstats_[j].impact_);
+				}
 			}
 
-			fprintf(stderr, "\tSelecting combID %ld for drop, impact %f\n", dropCombID, combImpact);
+			if(WimaxDebug::trace("WMOS::buffMOS0"))
+				fprintf(stderr, "\tSelecting combID %ld for drop, impact %f\n", dropCombID, combImpact);
 
 			// packet dropping of chosen combID
 			std::vector<bool> binComb;
@@ -971,27 +1004,30 @@ WimshMOSScheduler::bufferMOS(void)
 				sched_->bufSize(), sched_->maxBufSize(),
 				((float)sched_->bufSize()/(float)sched_->maxBufSize())*100 );
 
-		for(unsigned i=0; i < pdulist_.size(); i++)
-	//		for(unsigned j=0; j < pdulist_[i].size(); j++)
-				for(unsigned k=0; k < pdulist_[i].size(); k++)
-					for(unsigned l=0; l < pdulist_[i][k].size(); l++) {
-						if(pdulist_[i][k][l]->sdu()->ip()->datalen()) {
-							if(pdulist_[i][k][l]->sdu()->ip()->userdata()->type() == VOD_DATA) {
-								VideoData* vodinfo_ = (VideoData*)pdulist_[i][k][l]->sdu()->ip()->userdata();
-								fprintf (stderr, "\t\tVOD_DATA\tfid %d ndx %d id %d size %d\tdistortion %f\n",
-										pdulist_[i][k][l]->sdu()->flowId(), i, pdulist_[i][k][l]->sdu()->seqnumber(),
-										pdulist_[i][k][l]->size() ,vodinfo_->distortion());
-							} else if(pdulist_[i][k][l]->sdu()->ip()->userdata()->type() == VOIP_DATA) {
-								fprintf (stderr, "\t\tVOIP_DATA\tfid %d ndx %d id %d size %d\n",
-										pdulist_[i][k][l]->sdu()->flowId(), i, pdulist_[i][k][l]->sdu()->seqnumber(),
-										pdulist_[i][k][l]->size());
+		if(WimaxDebug::trace("WMOS::buffMOS2"))
+		{
+			for(unsigned i=0; i < pdulist_.size(); i++)
+		//		for(unsigned j=0; j < pdulist_[i].size(); j++)
+					for(unsigned k=0; k < pdulist_[i].size(); k++)
+						for(unsigned l=0; l < pdulist_[i][k].size(); l++) {
+							if(pdulist_[i][k][l]->sdu()->ip()->datalen()) {
+								if(pdulist_[i][k][l]->sdu()->ip()->userdata()->type() == VOD_DATA) {
+									VideoData* vodinfo_ = (VideoData*)pdulist_[i][k][l]->sdu()->ip()->userdata();
+									fprintf (stderr, "\t\tVOD_DATA\tfid %d ndx %d id %d size %d\tdistortion %f\n",
+											pdulist_[i][k][l]->sdu()->flowId(), i, pdulist_[i][k][l]->sdu()->seqnumber(),
+											pdulist_[i][k][l]->size() ,vodinfo_->distortion());
+								} else if(pdulist_[i][k][l]->sdu()->ip()->userdata()->type() == VOIP_DATA) {
+									fprintf (stderr, "\t\tVOIP_DATA\tfid %d ndx %d id %d size %d\n",
+											pdulist_[i][k][l]->sdu()->flowId(), i, pdulist_[i][k][l]->sdu()->seqnumber(),
+											pdulist_[i][k][l]->size());
+								}
+							} else {
+									fprintf (stderr, "\t\tFTP_DATA\tfid %d ndx %d id %d size %d\n",
+											pdulist_[i][k][l]->sdu()->flowId(), i, pdulist_[i][k][l]->sdu()->seqnumber(),
+											pdulist_[i][k][l]->size());
 							}
-						} else {
-								fprintf (stderr, "\t\tFTP_DATA\tfid %d ndx %d id %d size %d\n",
-										pdulist_[i][k][l]->sdu()->flowId(), i, pdulist_[i][k][l]->sdu()->seqnumber(),
-										pdulist_[i][k][l]->size());
 						}
-					}
+		}
 	}
 
 	// reconstruct queues
