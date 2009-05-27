@@ -113,7 +113,7 @@ WimshSchedulerFairRR::addPdu (WimaxPdu* pdu)
 
 	// call the RD scheduler on buffer overflow
 	if(bufSize_ + pdu->size() > maxBufSize_)
-		mac_->mosscheduler()->trigger();
+		mac_->mosscheduler()->trigger(pdu->size());
 
 	// if the size of this PDU overflows the buffer size, drop the PDU/SDU/IP
 	if ( ( bufferSharingMode_ == SHARED && bufSize_ + pdu->size() > maxBufSize_ ) ||

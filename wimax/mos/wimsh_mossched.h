@@ -79,14 +79,14 @@ public:
 	virtual ~WimshMOSScheduler () { }
 
 	//! Called each time the timer fires
-	void trigger(void);
+	void trigger(unsigned int target=0);
 	//! Return the timer object
 	MOStimer& gettimer() { return timer_; }
 	//! Handle the timer event
 	void handle ();
 
 	//! Apply the scheduler algoritm to the buffers
-	void bufferMOS(void);
+	void bufferMOS(unsigned int targetsize=0);
 
 	//! Process an SDU for statistics
 	void statSDU(WimaxSdu* sdu);

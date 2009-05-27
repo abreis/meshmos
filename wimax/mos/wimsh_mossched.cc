@@ -448,15 +448,13 @@ WimshMOSScheduler::deltaVideoMOS (vector<float>* mse, vector<float>* dropdist, M
 
 
 void
-WimshMOSScheduler::trigger(void)
+WimshMOSScheduler::trigger(unsigned int target)
 {
 	fprintf(stderr, "%.9f WMOS::trigger    [%d] MOS Scheduler timer fired\n",
 			NOW, mac_->nodeId());
 
-	bool enabled = TRUE;
 	// run the buffer algorithms
-	if( enabled )
-		bufferMOS();
+	bufferMOS(target);
 
 	// print some statistics, for debugging
 	fprintf (stderr,"\tflow statistics:\n");
@@ -469,8 +467,12 @@ WimshMOSScheduler::trigger(void)
 }
 
 void
-WimshMOSScheduler::bufferMOS(void)
+WimshMOSScheduler::bufferMOS(unsigned int targetsize)
 {
+	bool enabled = FALSE; // please do this in TCL..
+	if( !enabled )
+		return;
+
 	// pointer to this node's scheduler
 	WimshSchedulerFairRR* sched_ = (WimshSchedulerFairRR*)mac_->scheduler();
 
@@ -647,7 +649,7 @@ WimshMOSScheduler::bufferMOS(void)
 
 	// define scheduler aggressiveness here
 //	float buffertrigger = 0.90;
-	float buffertarget = 0.74;
+	float buffertarget = 0.90;
 	float reductionmargin = 0.01;
 	unsigned maxcombs = 5000;	// limit the maximum number of combinations to reduce processing time
 
@@ -665,10 +667,39 @@ WimshMOSScheduler::bufferMOS(void)
 		 */
 
 		// compute buffer decrease needs
-		float targetpoint = ( (float)sched_->maxBufSize() ) * buffertarget;
-		float bufferreduction = (float)sched_->bufSize() - targetpoint;
-		unsigned lbound = (unsigned)( bufferreduction - (float)sched_->maxBufSize()*reductionmargin );
-		unsigned rbound = (unsigned)( bufferreduction + (float)sched_->maxBufSize()*reductionmargin );
+		unsigned lbound=0, rbound=0;
+		float targetpoint=0, bufferreduction=0;
+		if(targetsize == 0)
+		{
+			// no target reduction given
+			targetpoint = ( (float)sched_->maxBufSize() ) * buffertarget;
+			bufferreduction = (float)sched_->bufSize() - targetpoint;
+			lbound = (unsigned)( bufferreduction - (float)sched_->maxBufSize()*reductionmargin );
+			rbound = (unsigned)( bufferreduction + (float)sched_->maxBufSize()*reductionmargin );
+		}
+		else
+		{
+			// target reduction given
+			targetpoint = ( (float)sched_->maxBufSize() ) * buffertarget;
+			bufferreduction = (float)sched_->bufSize() - targetpoint;
+
+			if((unsigned)bufferreduction < targetsize)
+			{
+				// if the incoming packet needs more space than what we're trying to get
+				bufferreduction = (float)targetsize;
+				lbound = (unsigned)( bufferreduction );
+				rbound = (unsigned)( bufferreduction + (float)sched_->maxBufSize()*2*reductionmargin );
+				fprintf(stderr, "\tDEBUG buffer target workaround activated\n");
+			}
+			else
+			{
+				// proceed normally
+				lbound = (unsigned)( bufferreduction - (float)sched_->maxBufSize()*reductionmargin );
+				rbound = (unsigned)( bufferreduction + (float)sched_->maxBufSize()*reductionmargin );
+			}
+
+		}
+
 //		fprintf(stderr, "\tDEBUG BUFF tgtpoint %f bfreduct %f lbound %u rbound %u\n",
 //				targetpoint, bufferreduction, lbound, rbound);
 
@@ -801,7 +832,7 @@ WimshMOSScheduler::bufferMOS(void)
 
 					// for each flow, aggregate all of its packets and estimate MOS impact
 
-					float mosweight = -0.025; // greater impact to flows w/ good MOS
+					float mosweight = -0.05; // greater impact to flows w/ good MOS
 
 					vector<float> combMOSdrop; // stores accumulated MOS variations for this combID
 					for(unsigned l=0; l < combfIDs.size(); l++)
@@ -869,6 +900,20 @@ WimshMOSScheduler::bufferMOS(void)
 
 							float newMOS = audioMOS(stats_[k].delay_, newloss);
 							float deltaMOS = newMOS - stats_[k].mos_;
+
+							// apply a weight to this deltaMOS, based on the flow's MOS
+							{
+								// get the FlowInfo
+								unsigned r=0;
+								for(; r<stats_.size(); r++)
+									if(stats_[r].fid_ == combfIDs[l])
+										break;
+								// get the MOS
+								float flowMOS = stats_[r].mos_;
+
+								// apply the weight
+								deltaMOS += (mosweight*flowMOS); // mosweight should be negative
+							}
 
 							// associate the deltaMOS to this combID for later processing
 							combMOSdrop.push_back(deltaMOS);
