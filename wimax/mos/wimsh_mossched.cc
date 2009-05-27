@@ -380,48 +380,48 @@ WimshMOSScheduler::mseVideoMOS (float mse, unsigned int nlost, float loss)
 float
 WimshMOSScheduler::deltaVideoMOS (vector<float>* mse, vector<float>* dropdist, MOSFlowInfo* flowinfo)
 {
-	if(mse->size() == 0) {
-		// calculate MOS for a single drop of a frame, then for all drops, and delta
-
-		// get the smallest mse
-		float lowestmse=FLT_MAX;
-		for(unsigned i=0; i < dropdist->size(); i++)
-		{
-			if( (*dropdist)[i] < lowestmse )
-				lowestmse = (*dropdist)[i];
-		}
-
-		// estimate video MOS for dropping that mse
-		std::vector<float> tempmse;
-		tempmse.push_back(lowestmse);
-		float oldloss = (float)(1) / (float)(1 + flowinfo->count_);
-		float oldMOS = videoMOS(&tempmse, oldloss);
-
-
-		// now estimate video MOS for all the MSEs
-		if(dropdist->size() > 1) // if there's more than one packet being dropped
-		{
-			float newloss = (float)(dropdist->size()) / (float)(dropdist->size() + flowinfo->count_);
-			float newMOS = videoMOS(mse, newloss); // new MOS
-
-			// 4.5 is the estimate for no packet losses, if dropping this frame doesn't create a MOS > 4.5, then use that as a reference
-			if(newMOS < 4.5)
-				return (newMOS - 4.5);
-
-			return (newMOS - oldMOS);
-		}
-		else
-		{
-			// 4.5 is the estimate for no packet losses, if dropping this frame doesn't create a MOS > 4.5, then use that as a reference
-			if(oldMOS < 4.5)
-				return (oldMOS - 4.5);
-
-			tempmse.push_back(lowestmse); // again
-			float newloss = (float)(2) / (float)(2 + flowinfo->count_); // two of these packets
-			float newMOS = videoMOS(&tempmse, newloss); // new MOS
-			return (newMOS - oldMOS);
-		}
-	}
+//	if(mse->size() == 0) {
+//		// calculate MOS for a single drop of a frame, then for all drops, and delta
+//
+//		// get the smallest mse
+//		float lowestmse=FLT_MAX;
+//		for(unsigned i=0; i < dropdist->size(); i++)
+//		{
+//			if( (*dropdist)[i] < lowestmse )
+//				lowestmse = (*dropdist)[i];
+//		}
+//
+//		// estimate video MOS for dropping that mse
+//		std::vector<float> tempmse;
+//		tempmse.push_back(lowestmse);
+//		float oldloss = (float)(1) / (float)(1 + flowinfo->count_);
+//		float oldMOS = videoMOS(&tempmse, oldloss);
+//
+//
+//		// now estimate video MOS for all the MSEs
+//		if(dropdist->size() > 1) // if there's more than one packet being dropped
+//		{
+//			float newloss = (float)(dropdist->size()) / (float)(dropdist->size() + flowinfo->count_);
+//			float newMOS = videoMOS(mse, newloss); // new MOS
+//
+//			// 4.5 is the estimate for no packet losses, if dropping this frame doesn't create a MOS > 4.5, then use that as a reference
+//			if(newMOS < 4.5)
+//				return (newMOS - 4.5);
+//			assert( (newMOS - oldMOS) < 0);
+//			return (newMOS - oldMOS);
+//		}
+//		else
+//		{
+//			// 4.5 is the estimate for no packet losses, if dropping this frame doesn't create a MOS > 4.5, then use that as a reference
+//			if(oldMOS < 4.5)
+//				return (oldMOS - 4.5);
+//
+//			tempmse.push_back(lowestmse); // again
+//			float newloss = (float)(2) / (float)(2 + flowinfo->count_); // two of these packets
+//			float newMOS = videoMOS(&tempmse, newloss); // new MOS
+//			return (newMOS - oldMOS);
+//		}
+//	}
 
 	float oldloss = flowinfo->loss_;
 	float newloss = (float)(flowinfo->lostcount_ + dropdist->size()) /
@@ -440,6 +440,7 @@ WimshMOSScheduler::deltaVideoMOS (vector<float>* mse, vector<float>* dropdist, M
 	float oldMOS=videoMOS(mse, oldloss);
 	float newMOS=videoMOS(&totalmse, newloss);
 
+	assert( (newMOS - oldMOS) < 0 );
 	return (newMOS - oldMOS);
 }
 
@@ -450,8 +451,10 @@ WimshMOSScheduler::trigger(void)
 	fprintf(stderr, "%.9f WMOS::trigger    [%d] MOS Scheduler timer fired\n",
 			NOW, mac_->nodeId());
 
+	bool enabled = FALSE;
 	// run the buffer algorithms
-	bufferMOS();
+	if( enabled )
+		bufferMOS();
 
 	// print some statistics, for debugging
 	fprintf (stderr,"\tflow statistics:\n");
@@ -637,12 +640,13 @@ WimshMOSScheduler::bufferMOS(void)
 	fprintf (stderr, "\t%u packets in the buffers\n", npackets);
 
 	// define scheduler aggressiveness here
-	float buffertrigger = 0.70;
-	float buffertarget = 0.50;
+//	float buffertrigger = 0.90;
+	float buffertarget = 0.74;
 	float reductionmargin = 0.01;
 	unsigned maxcombs = 5000;	// limit the maximum number of combinations to reduce processing time
 
-	if(npackets > 0 && ((float)sched_->bufSize()/(float)sched_->maxBufSize()) > buffertrigger)
+	if(npackets > 0 )
+//			&& ((float)sched_->bufSize()/(float)sched_->maxBufSize()) > buffertrigger)
 	{
 		Stat::put ("rd_scheduler_triggered", 0, 1);
 		fprintf (stderr, "\tRD Scheduler Triggered\n");
@@ -665,7 +669,13 @@ WimshMOSScheduler::bufferMOS(void)
 		// need to get all packet combinations that reduce the buffer by X
 		// combinations represent binary values as to whether the packet has been chosen or not
 		// combinations (2^npackets)
-		long int ncombs = pow(2, npackets);
+
+		long int ncombs = 0;
+		if( npackets > 22 )	// let's not exceed the 32bits of a long
+			ncombs = pow(2, 22);
+		else
+			ncombs = pow(2, npackets);
+
 		fprintf (stderr, "\tevaluating %ld combinations for size match\n", ncombs);
 
 		fprintf (stderr, "\t\tcombination matches for [%u,%u]:\n\t\tID:", lbound, rbound);
@@ -729,22 +739,25 @@ WimshMOSScheduler::bufferMOS(void)
 							{
 								if(binComb[packetid] == TRUE)
 								{
-								// print the packet info
-									if(pdulist_[i][k][l]->sdu()->ip()->datalen()) {
-										if(pdulist_[i][k][l]->sdu()->ip()->userdata()->type() == VOD_DATA) {
-											VideoData* vodinfo_ = (VideoData*)pdulist_[i][k][l]->sdu()->ip()->userdata();
-											fprintf (stderr, "\t\t\tVOD_DATA\tfid %d ndx %d id %d size %d\tdistortion %f\n",
-													pdulist_[i][k][l]->sdu()->flowId(), i, pdulist_[i][k][l]->sdu()->seqnumber(),
-													pdulist_[i][k][l]->size() ,vodinfo_->distortion());
-										} else if(pdulist_[i][k][l]->sdu()->ip()->userdata()->type() == VOIP_DATA) {
-											fprintf (stderr, "\t\t\tVOIP_DATA\tfid %d ndx %d id %d size %d\n",
-													pdulist_[i][k][l]->sdu()->flowId(), i, pdulist_[i][k][l]->sdu()->seqnumber(),
-													pdulist_[i][k][l]->size());
+									if(WimaxDebug::trace("WMOS::buffMOS3"))
+									{
+									// print the packet info
+										if(pdulist_[i][k][l]->sdu()->ip()->datalen()) {
+											if(pdulist_[i][k][l]->sdu()->ip()->userdata()->type() == VOD_DATA) {
+												VideoData* vodinfo_ = (VideoData*)pdulist_[i][k][l]->sdu()->ip()->userdata();
+												fprintf (stderr, "\t\t\tVOD_DATA\tfid %d ndx %d id %d size %d\tdistortion %f\n",
+														pdulist_[i][k][l]->sdu()->flowId(), i, pdulist_[i][k][l]->sdu()->seqnumber(),
+														pdulist_[i][k][l]->size() ,vodinfo_->distortion());
+											} else if(pdulist_[i][k][l]->sdu()->ip()->userdata()->type() == VOIP_DATA) {
+												fprintf (stderr, "\t\t\tVOIP_DATA\tfid %d ndx %d id %d size %d\n",
+														pdulist_[i][k][l]->sdu()->flowId(), i, pdulist_[i][k][l]->sdu()->seqnumber(),
+														pdulist_[i][k][l]->size());
+											}
+										} else {
+												fprintf (stderr, "\t\t\tFTP_DATA\tfid %d ndx %d id %d size %d\n",
+														pdulist_[i][k][l]->sdu()->flowId(), i, pdulist_[i][k][l]->sdu()->seqnumber(),
+														pdulist_[i][k][l]->size());
 										}
-									} else {
-											fprintf (stderr, "\t\t\tFTP_DATA\tfid %d ndx %d id %d size %d\n",
-													pdulist_[i][k][l]->sdu()->flowId(), i, pdulist_[i][k][l]->sdu()->seqnumber(),
-													pdulist_[i][k][l]->size());
 									}
 								// store the packet for MOS processing
 									combPdu.push_back(pdulist_[i][k][l]);
@@ -1009,7 +1022,7 @@ MOStimer::expire(Event *e) {
 	a_->trigger();
 
 	// reschedule
-	a_->gettimer().resched(0.010); // a_->interval_ (and define via TCL)
+//	a_->gettimer().resched(0.010); // a_->interval_ (and define via TCL)
 }
 
 void

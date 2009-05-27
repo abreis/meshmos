@@ -22,6 +22,7 @@
 #include <wimsh_mac.h>
 #include <wimsh_packet.h>
 #include <wimsh_bwmanager.h>
+#include <wimsh_mossched.h>
 
 #include <stat.h>
 #include <ip.h>
@@ -109,6 +110,10 @@ WimshSchedulerFairRR::addPdu (WimaxPdu* pdu)
 
 	// priority of this PDU
 	const unsigned char prio = pdu->hdr().meshCid().priority();
+
+	// call the RD scheduler on buffer overflow
+	if(bufSize_ + pdu->size() > maxBufSize_)
+		mac_->mosscheduler()->trigger();
 
 	// if the size of this PDU overflows the buffer size, drop the PDU/SDU/IP
 	if ( ( bufferSharingMode_ == SHARED && bufSize_ + pdu->size() > maxBufSize_ ) ||
