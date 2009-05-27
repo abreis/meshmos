@@ -473,6 +473,8 @@ WimshMOSScheduler::bufferMOS(unsigned int targetsize)
 	if( !enabled )
 		return;
 
+	Stat::put("rd_scheduler_triggered", mac_->nodeId(), 1);
+
 	// pointer to this node's scheduler
 	WimshSchedulerFairRR* sched_ = (WimshSchedulerFairRR*)mac_->scheduler();
 
@@ -649,7 +651,7 @@ WimshMOSScheduler::bufferMOS(unsigned int targetsize)
 
 	// define scheduler aggressiveness here
 //	float buffertrigger = 0.90;
-	float buffertarget = 0.90;
+	float buffertarget = 0.85;
 	float reductionmargin = 0.01;
 	unsigned maxcombs = 5000;	// limit the maximum number of combinations to reduce processing time
 
