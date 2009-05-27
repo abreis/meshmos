@@ -104,6 +104,9 @@ public:
 	//! Obtain MOS for a data flow
 	float dataMOS (float loss, float rate);
 
+	//! Update the global MOS of a flow
+	float updateMOS(MOStraffic traffic, int flowID);
+
 	//! Vector of MOSFlowInfo structs to keep track of data
 	std::vector <MOSFlowInfo> stats_;
 private:
@@ -112,8 +115,11 @@ protected:
 	//! Tcl interface.
 	virtual int command(int argc, const char*const* argv);
 
-	//! Parameters for data MOS calculation (set via TCL)
+	//! Parameters for data MOS calculation. Set via TCL.
 //	float data_a=0, data_b=0;
+
+	// enable or disable the MOS scheduler. Set via TCL.
+	bool enabled_;
 
 	//! Trigger timer
 	MOStimer timer_;

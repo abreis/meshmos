@@ -18,7 +18,7 @@ public:
 WimshMOSScheduler::WimshMOSScheduler () : timer_(this)
 {
 	fprintf(stderr, "Initialized a MOS Scheduler\n");
-	timer_.resched(0.010);
+//	timer_.resched(0.010);
 }
 
 int
@@ -29,6 +29,12 @@ WimshMOSScheduler::command(int argc, const char*const* argv)
 		return TCL_OK;
 	} else if ( argc == 3 && strcmp (argv[1], "scheduler") == 0 ) {
 		sched_ = (WimshSchedulerFairRR*) TclObject::lookup(argv[2]);
+		return TCL_OK;
+	} else if ( argc == 2 && strcmp (argv[1], "enable") == 0 ) {
+		enabled_ = TRUE;
+		return TCL_OK;
+	} else if ( argc == 2 && strcmp (argv[1], "disable") == 0 ) {
+		enabled_ = FALSE;
 		return TCL_OK;
 	}
 	return TCL_ERROR;
@@ -103,27 +109,6 @@ WimshMOSScheduler::statSDU(WimaxSdu* sdu)
 // 	fprintf(stderr, "\t DEBUG\n\t\tOld %f\n\t\tNew %f\n",
 // 			stats_[n].delay_, NOW - sdu->timestamp() );
 
- 	// distortion tracking
- 	// being done on drops
-//	if(sdu->ip()->userdata()->type() == VOD_DATA) {
-//		VideoData* vodinfo_ = (VideoData*)sdu->ip()->userdata();
-//		// store distortion info
-//		stats_[n].mse_.push_back(vodinfo_->distortion());
-//		// store packet ID
-//		stats_[n].vod_id_.push_back(sdu->seqnumber());
-//
-////		fprintf(stderr, "\tDEBUG storing fid %d id %d\n", sdu->flowId(), sdu->seqnumber());
-//
-//		// keep vectors at length 30
-//		if(stats_[n].mse_.size() > 30)
-//			stats_[n].mse_.erase(stats_[n].mse_.begin()); // pop front
-//		if(stats_[n].vod_id_.size() > 30)
-//			stats_[n].vod_id_.erase(stats_[n].vod_id_.begin()); // pop front
-//
-//		fprintf(stderr, "\tDEBUG vod_id first %d last %d\n", stats_[n].vod_id_[0],
-//				stats_[n].vod_id_[stats_[n].vod_id_.size()-1] );
-//	}
-
 
 	// re-evaluate the flow's MOS
  	switch(stats_[n].traffic_) {
@@ -132,8 +117,8 @@ WimshMOSScheduler::statSDU(WimaxSdu* sdu)
  		break;
 
  	case M_VOD:
- 		stats_[n].mos_ = videoMOS( &(stats_[n].mse_), stats_[n].loss_ );
-// 		stats_[n].mos_ = Stat::get ("rd_vod_mos", sdu->flowId());
+// 		stats_[n].mos_ = videoMOS( &(stats_[n].mse_), stats_[n].loss_ );
+ 		stats_[n].mos_ = updateMOS(M_VOD, sdu->flowId());
 		break;
 
  	default:
@@ -175,10 +160,6 @@ WimshMOSScheduler::dropPDU(WimaxPdu* pdu)
         Stat::put ("rd_vod_lost_frames", sdu->flowId(), 1);
 //		fprintf(stderr, "\tDEBUG STAT fid %d dist %f\n", sdu->flowId(), vodinfo_->distortion());
 
-		// keep vectors at length 30
-//		if(stats_[n].mse_.size() > 30)
-//			stats_[n].mse_.erase(stats_[n].mse_.begin()); // pop front
-
 //		fprintf(stderr, "\tDEBUG vod_id first %d last %d\n", stats_[n].vod_id_[0],
 //				stats_[n].vod_id_[stats_[n].vod_id_.size()-1] );
 	}
@@ -187,12 +168,12 @@ WimshMOSScheduler::dropPDU(WimaxPdu* pdu)
 	// re-evaluate the flow's MOS
  	switch(stats_[n].traffic_) {
  	case M_VOIP:
- 		stats_[n].mos_ = audioMOS(stats_[n].delay_, stats_[n].loss_);
+// 		stats_[n].mos_ = audioMOS(stats_[n].delay_, stats_[n].loss_);
  		break;
 
  	case M_VOD:
- 		stats_[n].mos_ = videoMOS( &(stats_[n].mse_), stats_[n].loss_ );
-// 		stats_[n].mos_ = Stat::get ("rd_vod_mos", sdu->flowId());
+// 		stats_[n].mos_ = videoMOS( &(stats_[n].mse_), stats_[n].loss_ );
+ 		stats_[n].mos_ = updateMOS(M_VOD, sdu->flowId());
  		break;
 
  	default:
@@ -469,7 +450,7 @@ WimshMOSScheduler::trigger(unsigned int target)
 void
 WimshMOSScheduler::bufferMOS(unsigned int targetsize)
 {
-	bool enabled = FALSE; // please do this in TCL..
+	bool enabled = TRUE; // please do this in TCL..
 	if( !enabled )
 		return;
 
@@ -691,7 +672,7 @@ WimshMOSScheduler::bufferMOS(unsigned int targetsize)
 				bufferreduction = (float)targetsize;
 				lbound = (unsigned)( bufferreduction );
 				rbound = (unsigned)( bufferreduction + (float)sched_->maxBufSize()*2*reductionmargin );
-				fprintf(stderr, "\tDEBUG buffer target workaround activated\n");
+				fprintf(stderr, "\t\tOverriding buffer reduction target due to oversized packet\n");
 			}
 			else
 			{
@@ -1099,13 +1080,46 @@ WimshMOSScheduler::bufferMOS(unsigned int targetsize)
 	}
 }
 
+float
+WimshMOSScheduler::updateMOS(MOStraffic traffic, int flowID)
+{
+	if(traffic==M_VOD)
+	{
+		// get the number of lost frames
+		unsigned int nlost = (unsigned int) Stat::get("rd_vod_lost_frames", flowID);
+		// get the cumulative mse lost
+		float mselost = (float) Stat::get("rd_vod_lost_mse", flowID);
+		// calculate the loss
+		float loss = (float)nlost / (float)(Stat::get("rd_vod_recv_frames", flowID) + nlost);
+
+		// get the new MOS
+		float mos = mseVideoMOS(mselost, nlost, loss);
+
+		// update MOS stat
+		Stat::put ("rd_vod_mos", flowID, mos);
+
+		return mos;
+	}
+	else if(traffic== M_VOIP)
+	{
+		// VoIP
+	}
+	else
+	{
+		// FTP
+	}
+
+	return 0;
+}
+
 void
 MOStimer::expire(Event *e) {
 	// call the handle function for the local node
 	a_->trigger();
 
 	// reschedule
-//	a_->gettimer().resched(0.010); // a_->interval_ (and define via TCL)
+	a_->gettimer().resched(0.010); // a_->interval_ (and define via TCL)
+	// enable/disable in WimshMOSScheduler::WimshMOSScheduler ()
 }
 
 void
