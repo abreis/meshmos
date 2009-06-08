@@ -450,7 +450,7 @@ WimshMOSScheduler::trigger(unsigned int target)
 void
 WimshMOSScheduler::bufferMOS(unsigned int targetsize)
 {
-	bool enabled = TRUE; // please do this in TCL..
+	bool enabled = FALSE; // please do this in TCL..
 	if( !enabled )
 		return;
 
@@ -541,7 +541,7 @@ WimshMOSScheduler::bufferMOS(unsigned int targetsize)
 	{
 		// show a list of all VOD_DATA packets in this node's buffers
 		for(unsigned i=0; i < pdulist_.size(); i++)
-	//		for(unsigned j=0; j < pdulist_[i].size(); j++)
+//			for(unsigned j=0; j < pdulist_[i].size(); j++)
 				for(unsigned k=0; k < pdulist_[i].size(); k++)
 					for(unsigned l=0; l < pdulist_[i][k].size(); l++) {
 						if(pdulist_[i][k][l]->sdu()->ip()->datalen()) {
@@ -691,8 +691,8 @@ WimshMOSScheduler::bufferMOS(unsigned int targetsize)
 		// combinations (2^npackets)
 
 		long int ncombs = 0;
-		if( npackets > 22 )	// let's not exceed the 32bits of a long
-			ncombs = pow(2, 22);
+		if( npackets > 20 )	// more than 2^X is unwieldy
+			ncombs = pow(2, 20);
 		else
 			ncombs = pow(2, npackets);
 
