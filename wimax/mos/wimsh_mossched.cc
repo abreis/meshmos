@@ -95,15 +95,21 @@ WimshMOSScheduler::statSDU(WimaxSdu* sdu)
  	}
 
 	// update packet loss estimate
-	stats_[n].loss_ = (float)stats_[n].lostcount_ / (float)(stats_[n].lostcount_ + stats_[n].count_);
+		// local estimation:
+//			stats_[n].loss_ = (float)stats_[n].lostcount_ / (float)(stats_[n].lostcount_ + stats_[n].count_);
+		// global estimation:
+			stats_[n].loss_ = (float) Stat::get("e2e_owpl", sdu->flowId());
 
 	// debug timestamps
 //	fprintf(stderr, "\t DEBUG\n\t\tNOW %f\n\t\tTimestamp %f\n",
 //			NOW, sdu->timestamp());
 
 	// delay estimates
- 	if( sdu->nHops() != 0) // ignore the first node, no estimates yet
- 		stats_[n].delay_ = stats_[n].delay_*0.75 + (NOW - sdu->timestamp())*0.25;
+		// local estimates
+//			if( sdu->nHops() != 0) // ignore the first node, no estimates yet
+//				stats_[n].delay_ = stats_[n].delay_*0.75 + (NOW - sdu->timestamp())*0.25;
+		// global estimates
+			stats_[n].delay_ = (float) Stat::get("e2e_owd_a", sdu->flowId());
 
  	// debug delay
 // 	fprintf(stderr, "\t DEBUG\n\t\tOld %f\n\t\tNew %f\n",
@@ -113,7 +119,8 @@ WimshMOSScheduler::statSDU(WimaxSdu* sdu)
 	// re-evaluate the flow's MOS
  	switch(stats_[n].traffic_) {
  	case M_VOIP:
- 		stats_[n].mos_ = audioMOS(stats_[n].delay_, stats_[n].loss_);
+// 		stats_[n].mos_ = audioMOS(stats_[n].delay_, stats_[n].loss_);
+ 		stats_[n].mos_ = updateMOS(M_VOIP, sdu->flowId());
  		break;
 
  	case M_VOD:
@@ -122,6 +129,7 @@ WimshMOSScheduler::statSDU(WimaxSdu* sdu)
 		break;
 
  	default:
+// 		stats_[n].mos_ = updateMOS(M_FTP, sdu->flowId());
  		break;
  	}
 
@@ -145,9 +153,12 @@ WimshMOSScheduler::dropPDU(WimaxPdu* pdu)
 	// increase the lost packet count
 	stats_[n].lostcount_++;
 	// update packet loss estimate
-	stats_[n].loss_ = (float)stats_[n].lostcount_ / (float)(stats_[n].lostcount_ + stats_[n].count_);
+		// local estimation:
+//			stats_[n].loss_ = (float)stats_[n].lostcount_ / (float)(stats_[n].lostcount_ + stats_[n].count_);
+		// global estimation:
+			stats_[n].loss_ = (float) Stat::get("e2e_owpl", sdu->flowId());
 
- 	// distortion tracking
+	// distortion tracking and global statistics
 	if(sdu->ip()->userdata()->type() == VOD_DATA) {
 		VideoData* vodinfo_ = (VideoData*)sdu->ip()->userdata();
 		// store MSE
@@ -158,16 +169,18 @@ WimshMOSScheduler::dropPDU(WimaxPdu* pdu)
 		// inform global statistics of the lost packet
         Stat::put ("rd_vod_lost_mse", sdu->flowId(), vodinfo_->distortion());
         Stat::put ("rd_vod_lost_frames", sdu->flowId(), 1);
-//		fprintf(stderr, "\tDEBUG STAT fid %d dist %f\n", sdu->flowId(), vodinfo_->distortion());
 
-//		fprintf(stderr, "\tDEBUG vod_id first %d last %d\n", stats_[n].vod_id_[0],
-//				stats_[n].vod_id_[stats_[n].vod_id_.size()-1] );
+	} else if(sdu->ip()->userdata()->type() == VOIP_DATA) {
+		// VOIP lost frames
+		// inform global statistics of the lost packet
+        Stat::put ("rd_voip_lost_frames", sdu->flowId(), 1);
 	}
 
 
 	// re-evaluate the flow's MOS
  	switch(stats_[n].traffic_) {
  	case M_VOIP:
+ 		stats_[n].mos_ = updateMOS(M_VOIP, sdu->flowId());
 // 		stats_[n].mos_ = audioMOS(stats_[n].delay_, stats_[n].loss_);
  		break;
 
@@ -363,49 +376,6 @@ WimshMOSScheduler::mseVideoMOS (float mse, unsigned int nlost, float loss)
 float
 WimshMOSScheduler::deltaVideoMOS (vector<float>* mse, vector<float>* dropdist, MOSFlowInfo* flowinfo)
 {
-//	if(mse->size() == 0) {
-//		// calculate MOS for a single drop of a frame, then for all drops, and delta
-//
-//		// get the smallest mse
-//		float lowestmse=FLT_MAX;
-//		for(unsigned i=0; i < dropdist->size(); i++)
-//		{
-//			if( (*dropdist)[i] < lowestmse )
-//				lowestmse = (*dropdist)[i];
-//		}
-//
-//		// estimate video MOS for dropping that mse
-//		std::vector<float> tempmse;
-//		tempmse.push_back(lowestmse);
-//		float oldloss = (float)(1) / (float)(1 + flowinfo->count_);
-//		float oldMOS = videoMOS(&tempmse, oldloss);
-//
-//
-//		// now estimate video MOS for all the MSEs
-//		if(dropdist->size() > 1) // if there's more than one packet being dropped
-//		{
-//			float newloss = (float)(dropdist->size()) / (float)(dropdist->size() + flowinfo->count_);
-//			float newMOS = videoMOS(mse, newloss); // new MOS
-//
-//			// 4.5 is the estimate for no packet losses, if dropping this frame doesn't create a MOS > 4.5, then use that as a reference
-//			if(newMOS < 4.5)
-//				return (newMOS - 4.5);
-//			assert( (newMOS - oldMOS) < 0);
-//			return (newMOS - oldMOS);
-//		}
-//		else
-//		{
-//			// 4.5 is the estimate for no packet losses, if dropping this frame doesn't create a MOS > 4.5, then use that as a reference
-//			if(oldMOS < 4.5)
-//				return (oldMOS - 4.5);
-//
-//			tempmse.push_back(lowestmse); // again
-//			float newloss = (float)(2) / (float)(2 + flowinfo->count_); // two of these packets
-//			float newMOS = videoMOS(&tempmse, newloss); // new MOS
-//			return (newMOS - oldMOS);
-//		}
-//	}
-
 	float oldloss = flowinfo->loss_;
 	float newloss = (float)(flowinfo->lostcount_ + dropdist->size()) /
 					(float)(flowinfo->lostcount_ + dropdist->size() + flowinfo->count_);
@@ -586,7 +556,7 @@ WimshMOSScheduler::bufferMOS(unsigned int targetsize)
 							flowids_.push_back(pdulist_[i][k][l]->sdu()->flowId());
 					}
 				}
-//
+
 	// print all flowIDs
 	fprintf (stderr, "\tFlow IDs in the buffer: ");
 	for(unsigned int i=0; i < flowids_.size(); i++)
@@ -877,12 +847,24 @@ WimshMOSScheduler::bufferMOS(unsigned int targetsize)
 
 							assert(nCombPackets>0);
 
-							// nCombPackets, estimate drop percentage increase, get new MOS
-							float newloss = (float)(stats_[k].lostcount_ + nCombPackets) /
-											(float)(stats_[k].lostcount_ + nCombPackets + stats_[k].count_);
+							// without global stats:
+								// nCombPackets, estimate drop percentage increase, get new MOS
+								float newloss = (float)(stats_[k].lostcount_ + nCombPackets) /
+												(float)(stats_[k].lostcount_ + nCombPackets + stats_[k].count_);
 
-							float newMOS = audioMOS(stats_[k].delay_, newloss);
-							float deltaMOS = newMOS - stats_[k].mos_;
+								float newMOS = audioMOS(stats_[k].delay_, newloss);
+								float deltaMOS = newMOS - stats_[k].mos_;
+
+							// with global stats:
+//								// get lost count
+//								unsigned int lostcount = (unsigned int) Stat::get("rd_voip_lost_frames")
+//								// estimate drop percentage increase, get new MOS
+//								float newloss = (float)(stats_[k].lostcount_ + nCombPackets) /
+//												(float)(stats_[k].lostcount_ + nCombPackets + stats_[k].count_);
+//
+//								float newMOS = audioMOS(stats_[k].delay_, newloss);
+//								float deltaMOS = newMOS - stats_[k].mos_;
+
 
 							// apply a weight to this deltaMOS, based on the flow's MOS
 							{
@@ -1100,9 +1082,19 @@ WimshMOSScheduler::updateMOS(MOStraffic traffic, int flowID)
 
 		return mos;
 	}
-	else if(traffic== M_VOIP)
+	else if(traffic==M_VOIP)
 	{
-		// VoIP
+		// get the flow's error rate
+		float ploss = (float) Stat::get("e2e_owpl", flowID);
+		// get the delay
+		float delay = (float) Stat::get("e2e_owd_a", flowID);
+
+		float mos = audioMOS(delay, ploss);
+
+		// update MOS stat
+		Stat::put ("rd_voip_mos", flowID, mos);
+
+		return mos;
 	}
 	else
 	{

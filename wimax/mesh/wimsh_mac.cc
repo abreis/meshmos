@@ -512,7 +512,7 @@ WimshMac::recvSdu (WimaxSdu* sdu)
 		// TODO: final destination of an SDU
 
 		// process statistics for RD scheduler
-		if(sdu->ip()->userdata()->type() == VOD_DATA) {
+		if(sdu->ip()->userdata()->type() == VOD_DATA) { // VOD
 			// increase frame count
 			Stat::put ("rd_vod_recv_frames", sdu->flowId(), 1);
 
@@ -528,6 +528,10 @@ WimshMac::recvSdu (WimaxSdu* sdu)
 
 			// update MOS stat
 			Stat::put ("rd_vod_mos", sdu->flowId(), mos);
+
+		} else if(sdu->ip()->userdata()->type() == VOIP_DATA) { // VOIP
+			// increase frame count
+			Stat::put ("rd_voip_recv_frames", sdu->flowId(), 1);
 		}
 
 
