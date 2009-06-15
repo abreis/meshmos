@@ -420,8 +420,8 @@ WimshMOSScheduler::trigger(unsigned int target)
 void
 WimshMOSScheduler::bufferMOS(unsigned int targetsize)
 {
-	bool enabled = FALSE; // please do this in TCL..
-	if( !enabled )
+	// enabled_ is set via TCL and defines if the scheduler acts on the buffers
+	if( !enabled_ )
 		return;
 
 	Stat::put("rd_scheduler_triggered", mac_->nodeId(), 1);
@@ -786,6 +786,9 @@ WimshMOSScheduler::bufferMOS(unsigned int targetsize)
 					// for each flow, aggregate all of its packets and estimate MOS impact
 
 					float mosweight = -0.05; // greater impact to flows w/ good MOS
+					float vodweight = 1; 	// coefficient specific to VOD flows
+					float voipweight = 1;	// coefficient specific to VOIP flows
+					float ftpweight = 1; 	// coefficient specific to FTP flows
 
 					vector<float> combMOSdrop; // stores accumulated MOS variations for this combID
 					for(unsigned l=0; l < combfIDs.size(); l++)
@@ -826,8 +829,8 @@ WimshMOSScheduler::bufferMOS(unsigned int targetsize)
 								// get the MOS
 								float flowMOS = stats_[r].mos_;
 
-								// apply the weight
-								deltaMOS += (mosweight*flowMOS); // mosweight should be negative
+								// apply the weights
+								deltaMOS += (mosweight*vodweight*flowMOS); // mosweight should be negative
 							}
 
 							// associate the deltaMOS to this combID for later processing
@@ -847,24 +850,13 @@ WimshMOSScheduler::bufferMOS(unsigned int targetsize)
 
 							assert(nCombPackets>0);
 
-							// without global stats:
+							// implicit global stats:
 								// nCombPackets, estimate drop percentage increase, get new MOS
 								float newloss = (float)(stats_[k].lostcount_ + nCombPackets) /
 												(float)(stats_[k].lostcount_ + nCombPackets + stats_[k].count_);
 
 								float newMOS = audioMOS(stats_[k].delay_, newloss);
 								float deltaMOS = newMOS - stats_[k].mos_;
-
-							// with global stats:
-//								// get lost count
-//								unsigned int lostcount = (unsigned int) Stat::get("rd_voip_lost_frames")
-//								// estimate drop percentage increase, get new MOS
-//								float newloss = (float)(stats_[k].lostcount_ + nCombPackets) /
-//												(float)(stats_[k].lostcount_ + nCombPackets + stats_[k].count_);
-//
-//								float newMOS = audioMOS(stats_[k].delay_, newloss);
-//								float deltaMOS = newMOS - stats_[k].mos_;
-
 
 							// apply a weight to this deltaMOS, based on the flow's MOS
 							{
@@ -878,6 +870,8 @@ WimshMOSScheduler::bufferMOS(unsigned int targetsize)
 
 								// apply the weight
 								deltaMOS += (mosweight*flowMOS); // mosweight should be negative
+								// apply the global VOIP weight
+								deltaMOS *= voipweight;
 							}
 
 							// associate the deltaMOS to this combID for later processing
@@ -890,8 +884,47 @@ WimshMOSScheduler::bufferMOS(unsigned int targetsize)
 						}
 						else
 						{
-							// FTP
-							// TODO: nothing for now
+							// FTP, need packet loss and tpt
+							unsigned nCombPackets=0;
+							for(unsigned n=0; n<combPdu.size(); n++) // for each PDU
+								if(combPdu[n]->sdu()->flowId() == combfIDs[l]) // if it belongs to the current flowID
+									nCombPackets++;
+
+							assert(nCombPackets>0);
+
+							// implicit global stats:
+								// nCombPackets, estimate drop percentage increase, get new MOS
+								float newloss = (float)(stats_[k].lostcount_ + nCombPackets) /
+												(float)(stats_[k].lostcount_ + nCombPackets + stats_[k].count_);
+
+								float newtpt = 0; // TODO, how to map a packet loss to a tpt reduction
+
+								float newMOS = dataMOS(newloss, newtpt);
+								float deltaMOS = newMOS - stats_[k].mos_;
+
+							// apply a weight to this deltaMOS, based on the flow's MOS
+							{
+								// get the FlowInfo
+								unsigned r=0;
+								for(; r<stats_.size(); r++)
+									if(stats_[r].fid_ == combfIDs[l])
+										break;
+								// get the MOS
+								float flowMOS = stats_[r].mos_;
+
+								// apply the weight
+								deltaMOS += (mosweight*flowMOS); // mosweight should be negative
+								// apply the global VOIP weight
+								deltaMOS *= ftpweight;
+							}
+
+							// associate the deltaMOS to this combID for later processing
+							combMOSdrop.push_back(deltaMOS);
+
+							if(WimaxDebug::trace("WMOS::buffMOS2"))
+								fprintf(stderr, "\t\t\t(-) FTP  fid %d drop %d delta %f oldMOS %f newMOS %f\n",
+										combfIDs[l], nCombPackets, deltaMOS, stats_[k].mos_, newMOS);
+
 						}
 
 					} // end of for each fID of this comb
@@ -1097,8 +1130,18 @@ WimshMOSScheduler::updateMOS(MOStraffic traffic, int flowID)
 		return mos;
 	}
 	else
-	{
-		// FTP
+	{		// FTP
+		// get the flow's error rate
+		float ploss = (float) Stat::get("e2e_owpl", flowID);
+		// get the flow's throughput
+		float tpt = (float) Stat::get("e2e_tpt", flowID);
+
+		float mos = dataMOS(ploss, tpt);
+
+		// update MOS stat
+		Stat::put ("rd_ftp_mos", flowID, mos);
+
+		return mos;
 	}
 
 	return 0;
