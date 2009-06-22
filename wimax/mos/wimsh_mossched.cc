@@ -104,12 +104,16 @@ WimshMOSScheduler::statSDU(WimaxSdu* sdu)
 //	fprintf(stderr, "\t DEBUG\n\t\tNOW %f\n\t\tTimestamp %f\n",
 //			NOW, sdu->timestamp());
 
-	// delay estimates
+	// update delay estimate
 		// local estimates
 //			if( sdu->nHops() != 0) // ignore the first node, no estimates yet
 //				stats_[n].delay_ = stats_[n].delay_*0.75 + (NOW - sdu->timestamp())*0.25;
 		// global estimates
 			stats_[n].delay_ = (float) Stat::get("e2e_owd_a", sdu->flowId());
+
+	// update throughput estimate
+		// global estimates
+			stats_[n].tpt_ = (unsigned long) Stat::get("e2e_tpt", sdu->flowId());
 
  	// debug delay
 // 	fprintf(stderr, "\t DEBUG\n\t\tOld %f\n\t\tNew %f\n",
@@ -129,7 +133,7 @@ WimshMOSScheduler::statSDU(WimaxSdu* sdu)
 		break;
 
  	default:
-// 		stats_[n].mos_ = updateMOS(M_FTP, sdu->flowId());
+ 		stats_[n].mos_ = updateMOS(M_FTP, sdu->flowId());
  		break;
  	}
 
@@ -158,6 +162,10 @@ WimshMOSScheduler::dropPDU(WimaxPdu* pdu)
 		// global estimation:
 			stats_[n].loss_ = (float) Stat::get("e2e_owpl", sdu->flowId());
 
+	// update throughput estimate
+		// global estimates
+			stats_[n].tpt_ = (unsigned long) Stat::get("e2e_tpt", sdu->flowId());
+
 	// distortion tracking and global statistics
 	if(sdu->ip()->userdata()->type() == VOD_DATA) {
 		VideoData* vodinfo_ = (VideoData*)sdu->ip()->userdata();
@@ -174,6 +182,9 @@ WimshMOSScheduler::dropPDU(WimaxPdu* pdu)
 		// VOIP lost frames
 		// inform global statistics of the lost packet
         Stat::put ("rd_voip_lost_frames", sdu->flowId(), 1);
+	} else {
+		// FTP lost frames
+		Stat::put ("rd_ftp_lost_frames", sdu->flowId(), 1);
 	}
 
 
@@ -190,6 +201,7 @@ WimshMOSScheduler::dropPDU(WimaxPdu* pdu)
  		break;
 
  	default:
+ 		stats_[n].mos_ = updateMOS(M_FTP, sdu->flowId());
  		break;
  	}
 
@@ -238,7 +250,7 @@ WimshMOSScheduler::audioMOS(double delay, float loss)
 }
 
 float
-WimshMOSScheduler::dataMOS (float loss, float rate)
+WimshMOSScheduler::dataMOS (float loss, unsigned long rate)
 {
 	/* data from:
 	 * MOS-Based Multiuser Multiapplication Cross-Layer
@@ -251,6 +263,7 @@ WimshMOSScheduler::dataMOS (float loss, float rate)
 	float data_a = 2.1;
 	float data_b = 0.3;
 
+	// expects rate in kbps
 	mos = data_a * log10(data_b*rate*(1-loss));
 
 	// truncate the mos at maximum value
@@ -897,10 +910,15 @@ WimshMOSScheduler::bufferMOS(unsigned int targetsize)
 								float newloss = (float)(stats_[k].lostcount_ + nCombPackets) /
 												(float)(stats_[k].lostcount_ + nCombPackets + stats_[k].count_);
 
-								float newtpt = 0; // TODO, how to map a packet loss to a tpt reduction
+							// get total size of packets
+								// TODO
 
-								float newMOS = dataMOS(newloss, newtpt);
-								float deltaMOS = newMOS - stats_[k].mos_;
+							// get old tpt
+							float oldtpt = stats_[k].tpt_;
+							float newtpt = 0; // TODO, how to map a packet loss to a tpt reduction
+
+							float newMOS = dataMOS(newloss, newtpt);
+							float deltaMOS = newMOS - stats_[k].mos_;
 
 							// apply a weight to this deltaMOS, based on the flow's MOS
 							{
@@ -956,7 +974,7 @@ WimshMOSScheduler::bufferMOS(unsigned int targetsize)
 
 			} // end of combination packet listing
 
-			// algorithm to choose the best combID from combstats_ TODO
+			// algorithm to choose the best combID from combstats_
 			long dropCombID = 0; // best combination for dropping
 			float combImpact = -500; // valor
 
@@ -1130,12 +1148,16 @@ WimshMOSScheduler::updateMOS(MOStraffic traffic, int flowID)
 		return mos;
 	}
 	else
-	{		// FTP
+	{	// FTP
 		// get the flow's error rate
 		float ploss = (float) Stat::get("e2e_owpl", flowID);
 		// get the flow's throughput
-		float tpt = (float) Stat::get("e2e_tpt", flowID);
+		unsigned long tpt = (unsigned long) Stat::get("e2e_tpt", flowID);
 
+		// convert to kbps
+		tpt *= (8/1000);
+
+		// calculate the MOS
 		float mos = dataMOS(ploss, tpt);
 
 		// update MOS stat

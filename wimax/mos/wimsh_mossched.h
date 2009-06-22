@@ -36,6 +36,9 @@ struct MOSFlowInfo {
 	//! Delay information
 	double delay_;
 
+	//! Throughput information (for FTP)
+	unsigned long tpt_;
+
 	//! MOS of the flow
 	float mos_;
 
@@ -50,7 +53,7 @@ struct MOSFlowInfo {
 	MOSFlowInfo (int fid = 0, int uid = 0) {
 		fid_ = fid; count_ = 0;
 		lostcount_ = 0; lastuid_ = uid; loss_ = 0;
-		delay_ = 0; mos_ = 0;
+		delay_ = 0; tpt_ = 0; mos_ = 0;
 	}
 };
 
@@ -102,7 +105,7 @@ public:
 	//! Obtain deltaMOS for a video flow
 	float deltaVideoMOS (vector<float>* mse, vector<float>* dropdist, MOSFlowInfo* flowinfo);
 	//! Obtain MOS for a data flow
-	float dataMOS (float loss, float rate);
+	float dataMOS (float loss, unsigned long rate);
 
 	//! Update the global MOS of a flow
 	float updateMOS(MOStraffic traffic, int flowID);

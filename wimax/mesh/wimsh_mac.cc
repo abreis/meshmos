@@ -532,6 +532,35 @@ WimshMac::recvSdu (WimaxSdu* sdu)
 		} else if(sdu->ip()->userdata()->type() == VOIP_DATA) { // VOIP
 			// increase frame count
 			Stat::put ("rd_voip_recv_frames", sdu->flowId(), 1);
+
+			// get the flow's error rate
+			float ploss = (float) Stat::get("e2e_owpl", sdu->flowId());
+			// get the delay
+			float delay = (float) Stat::get("e2e_owd_a", sdu->flowId());
+
+			// get the new MOS
+			float mos = mosscheduler_->audioMOS(delay, ploss);
+
+			// update MOS stat
+			Stat::put ("rd_voip_mos", sdu->flowId(), mos);
+
+		} else { // FTP
+			// increase frame count
+			Stat::put ("rd_ftp_recv_frames", sdu->flowId(), 1);
+
+			// get the flow's error rate
+			float ploss = (float) Stat::get("e2e_owpl", sdu->flowId());
+			// get the flow's throughput
+			unsigned long tpt = (unsigned long) Stat::get("e2e_tpt", sdu->flowId());
+
+			// convert to kbps
+			tpt *= (8/1000);
+
+			// calculate the MOS
+			float mos = mosscheduler_->dataMOS(ploss, tpt);
+
+			// update MOS stat
+			Stat::put ("rd_ftp_mos", sdu->flowId(), mos);
 		}
 
 
