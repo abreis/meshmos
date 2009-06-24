@@ -629,6 +629,20 @@ proc create_nodes {} {
       # bind the MAC to the topology
       $mac($i) topology $topo
 
+	# create and initialize the MOS scheduler
+	set mossched [new WimshMOSScheduler]
+	$mossched mac $mac($i)
+
+	# link the mos scheduler to the MAC
+	$mac($i) mosscheduler $mossched
+
+	# enable / disable the mos scheduler
+	if { $opt(rd-enable) == 1 } {
+		$mossched enable
+	} else {
+		$mossched disable
+	}
+
       # define the list of channels that all the nodes can use
       for { set j 0 } { $j < $opt(channel) } { incr j } {
          $mac($i) channel $chan($j)

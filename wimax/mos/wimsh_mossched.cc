@@ -898,10 +898,14 @@ WimshMOSScheduler::bufferMOS(unsigned int targetsize)
 						else
 						{
 							// FTP, need packet loss and tpt
-							unsigned nCombPackets=0;
+							unsigned nCombPackets=0, combpsize=0;
 							for(unsigned n=0; n<combPdu.size(); n++) // for each PDU
 								if(combPdu[n]->sdu()->flowId() == combfIDs[l]) // if it belongs to the current flowID
+								{
 									nCombPackets++;
+									// get total size of packets
+									combpsize += combPdu[n]->size();
+								}
 
 							assert(nCombPackets>0);
 
@@ -910,12 +914,17 @@ WimshMOSScheduler::bufferMOS(unsigned int targetsize)
 								float newloss = (float)(stats_[k].lostcount_ + nCombPackets) /
 												(float)(stats_[k].lostcount_ + nCombPackets + stats_[k].count_);
 
-							// get total size of packets
-								// TODO
 
 							// get old tpt
-							float oldtpt = stats_[k].tpt_;
-							float newtpt = 0; // TODO, how to map a packet loss to a tpt reduction
+							float oldtpt = stats_[k].tpt_; // in B/s
+							oldtpt *= 8; // to bps
+
+							// reduction factor due to packet drop
+							// needs much improvement here
+							float newtpt = oldtpt - combpsize;
+							if(newtpt<0) newtpt=0; // safety check
+
+							newtpt *= (1/1000); // to kbps
 
 							float newMOS = dataMOS(newloss, newtpt);
 							float deltaMOS = newMOS - stats_[k].mos_;

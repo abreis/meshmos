@@ -146,6 +146,11 @@ set opt(sch-round-duration) 21312      ;# FairRR scheduler, in bytes
 set opt(buffer-sharing)     "per-flow" ;# FairRR scheduler only
 
 #
+# RD scheduler
+#
+set opt(rd-enable) 0
+
+#
 # link profiles
 #
 set opt(prfall) 0    ;# default burst profile index, overriden by prfndx's
@@ -199,10 +204,23 @@ set opt(cbr-rnd)     1        ;# set to 0 to have perfect CBR generation
 set opt(vod-trace)   "traces/streaming.ns2"
 
 #
+# Traffic Trace
+#
+set opt(traffic-trace)	"traces/streaming.ns2"
+
+#
 # FTP traffic
 #
 set opt(ftp-wnd)    64      ;# TCP maximum congestion window size
 set opt(ftp-pkt)    1024    ;# TCP Maximum Segment Size
+
+#
+# Telnet traffic
+#
+set opt(telnet-interval)   0	;# If interval_ is non-zero, inter-packet times 
+				;# are chosen from an exponential distribution with 
+				;# average equal to interval_; otherwise, inter-arrival
+				;# times are chosen according to the tcplib distribution
 
 ################################################################################
 # NETWORK ENTRY CONFIGURATION
@@ -280,11 +298,17 @@ proc create_connections {} {
          } elseif { $traffic == "voip" } {
 				create_voip $src $dst $prio $i $start "never"
 
+         } elseif { $traffic == "telnet" } {
+				create_telnet $src $dst $prio $i $start "never"
+
          } elseif { $traffic == "ftp" } {
 				create_ftp $src $dst $prio $i $start "never"
 
          } elseif { $traffic == "vod" } {
 				create_vod $src $dst $prio $i $start "never"
+
+         } elseif { $traffic == "traffic" } {
+				create_traffic $src $dst $prio $i $start "never"
 
 			} elseif { $traffic == "udptunnel" } {
 				create_udptunnel $src $dst $prio $i $start "never"
