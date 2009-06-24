@@ -113,7 +113,7 @@ WimshMOSScheduler::statSDU(WimaxSdu* sdu)
 
 	// update throughput estimate
 		// global estimates
-			stats_[n].tpt_ = (unsigned long) Stat::get("e2e_tpt", sdu->flowId());
+			stats_[n].tpt_ = (unsigned long) Stat::get("rd_ftp_tpt", sdu->flowId());
 
  	// debug delay
 // 	fprintf(stderr, "\t DEBUG\n\t\tOld %f\n\t\tNew %f\n",
@@ -164,24 +164,26 @@ WimshMOSScheduler::dropPDU(WimaxPdu* pdu)
 
 	// update throughput estimate
 		// global estimates
-			stats_[n].tpt_ = (unsigned long) Stat::get("e2e_tpt", sdu->flowId());
+			stats_[n].tpt_ = (unsigned long) Stat::get("rd_ftp_tpt", sdu->flowId());
 
 	// distortion tracking and global statistics
-	if(sdu->ip()->userdata()->type() == VOD_DATA) {
-		VideoData* vodinfo_ = (VideoData*)sdu->ip()->userdata();
-		// store MSE
-		stats_[n].mse_.push_back(vodinfo_->distortion());
-		// store ID
-		stats_[n].vod_id_.push_back(sdu->seqnumber());
+	if(sdu->ip()->datalen()) {
+		if(sdu->ip()->userdata()->type() == VOD_DATA) {
+			VideoData* vodinfo_ = (VideoData*)sdu->ip()->userdata();
+			// store MSE
+			stats_[n].mse_.push_back(vodinfo_->distortion());
+			// store ID
+			stats_[n].vod_id_.push_back(sdu->seqnumber());
 
-		// inform global statistics of the lost packet
-        Stat::put ("rd_vod_lost_mse", sdu->flowId(), vodinfo_->distortion());
-        Stat::put ("rd_vod_lost_frames", sdu->flowId(), 1);
+			// inform global statistics of the lost packet
+			Stat::put ("rd_vod_lost_mse", sdu->flowId(), vodinfo_->distortion());
+			Stat::put ("rd_vod_lost_frames", sdu->flowId(), 1);
 
-	} else if(sdu->ip()->userdata()->type() == VOIP_DATA) {
-		// VOIP lost frames
-		// inform global statistics of the lost packet
-        Stat::put ("rd_voip_lost_frames", sdu->flowId(), 1);
+		} else if(sdu->ip()->userdata()->type() == VOIP_DATA) {
+			// VOIP lost frames
+			// inform global statistics of the lost packet
+			Stat::put ("rd_voip_lost_frames", sdu->flowId(), 1);
+		}
 	} else {
 		// FTP lost frames
 		Stat::put ("rd_ftp_lost_frames", sdu->flowId(), 1);
@@ -257,14 +259,15 @@ WimshMOSScheduler::dataMOS (float loss, unsigned long rate)
 	 * Optimization for Mobile Multimedia Communication
 	 */
 
-	float mos = 0;
+	// safeguards against rate zero
+	if(rate==0) return 4.5;
 
 	// a=2.1 & b=0.3 will fit the curve for MOS=1 at rate 10kbps and MOS 4.5 at rate 450kbps
 	float data_a = 2.1;
 	float data_b = 0.3;
 
 	// expects rate in kbps
-	mos = data_a * log10(data_b*rate*(1-loss));
+	float mos = data_a * log10(data_b*rate*(1-loss));
 
 	// truncate the mos at maximum value
 	if(mos>4.5) mos=4.5;
@@ -414,20 +417,23 @@ WimshMOSScheduler::deltaVideoMOS (vector<float>* mse, vector<float>* dropdist, M
 void
 WimshMOSScheduler::trigger(unsigned int target)
 {
-	fprintf(stderr, "%.9f WMOS::trigger    [%d] MOS Scheduler timer fired\n",
-			NOW, mac_->nodeId());
+	if(WimaxDebug::trace("WMOS::buffMOS1"))
+		fprintf(stderr, "%.9f WMOS::trigger    [%d] MOS Scheduler timer fired\n",
+				NOW, mac_->nodeId());
 
 	// run the buffer algorithms
 	bufferMOS(target);
 
 	// print some statistics, for debugging
-	fprintf (stderr,"\tflow statistics:\n");
-	for (unsigned i=0; i < stats_.size(); i++) {
-		fprintf (stderr,"\t\tfid %d lastuid %d count %d lost %d lossrate %f delay %f\n",
-			stats_[i].fid_, stats_[i].lastuid_, stats_[i].count_, stats_[i].lostcount_, stats_[i].loss_,
-			stats_[i].delay_);
+	if(WimaxDebug::trace("WMOS::buffMOS1"))
+	{
+		fprintf (stderr,"\tflow statistics:\n");
+		for (unsigned i=0; i < stats_.size(); i++) {
+			fprintf (stderr,"\t\tfid %d lastuid %d count %d lost %d lossrate %f delay %f\n",
+				stats_[i].fid_, stats_[i].lastuid_, stats_[i].count_, stats_[i].lostcount_, stats_[i].loss_,
+				stats_[i].delay_);
+		}
 	}
-
 }
 
 void
@@ -924,7 +930,7 @@ WimshMOSScheduler::bufferMOS(unsigned int targetsize)
 							float newtpt = oldtpt - combpsize;
 							if(newtpt<0) newtpt=0; // safety check
 
-							newtpt *= (1/1000); // to kbps
+							newtpt /= 1000; // to kbps
 
 							float newMOS = dataMOS(newloss, newtpt);
 							float deltaMOS = newMOS - stats_[k].mos_;
@@ -1042,7 +1048,7 @@ WimshMOSScheduler::bufferMOS(unsigned int targetsize)
 								WimaxPdu* pdu = *iter1;
 								fprintf (stderr, "\t\tDropping packet fid %d ndx %d id %d size %d type %d\n",
 										pdu->sdu()->flowId(), i, pdu->sdu()->seqnumber(),
-										pdu->size(), pdu->sdu()->ip()->userdata()->type());
+										pdu->size(), pdu->sdu()->ip()->datalen()?pdu->sdu()->ip()->userdata()->type():0);
 
 								// stat the lost packet as killed by the scheduler
 								Stat::put ("rd_packet_lost_scheduler", pdu->sdu()->flowId(), 1);
@@ -1161,10 +1167,13 @@ WimshMOSScheduler::updateMOS(MOStraffic traffic, int flowID)
 		// get the flow's error rate
 		float ploss = (float) Stat::get("e2e_owpl", flowID);
 		// get the flow's throughput
-		unsigned long tpt = (unsigned long) Stat::get("e2e_tpt", flowID);
+			// tpt in Stat:: "e2e_tpt" is only obtained when simulation finishes
+			// unsigned long tpt = (unsigned long) Stat::get("e2e_tpt", flowID);
+		unsigned long tpt = (unsigned long) Stat::get("rd_ftp_tpt", flowID);
 
 		// convert to kbps
-		tpt *= (8/1000);
+		tpt *= 8;
+		tpt /= 1000;
 
 		// calculate the MOS
 		float mos = dataMOS(ploss, tpt);

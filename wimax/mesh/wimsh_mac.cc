@@ -512,55 +512,86 @@ WimshMac::recvSdu (WimaxSdu* sdu)
 		// TODO: final destination of an SDU
 
 		// process statistics for RD scheduler
-		if(sdu->ip()->userdata()->type() == VOD_DATA) { // VOD
-			// increase frame count
-			Stat::put ("rd_vod_recv_frames", sdu->flowId(), 1);
+		if(sdu->ip()->datalen()) {
+			if(sdu->ip()->userdata()->type() == VOD_DATA) { // VOD
+				// increase frame count
+				Stat::put ("rd_vod_recv_frames", sdu->flowId(), 1);
 
-			// get the number of lost frames
-			unsigned int nlost = (unsigned int) Stat::get("rd_vod_lost_frames", sdu->flowId());
-			// get the cumulative mse lost
-			float mselost = (float) Stat::get("rd_vod_lost_mse", sdu->flowId());
-			// calculate the loss
-			float loss = (float)nlost / (float)(Stat::get("rd_vod_recv_frames", sdu->flowId()) + nlost);
+				// get the number of lost frames
+				unsigned int nlost = (unsigned int) Stat::get("rd_vod_lost_frames", sdu->flowId());
+				// get the cumulative mse lost
+				float mselost = (float) Stat::get("rd_vod_lost_mse", sdu->flowId());
+				// calculate the loss
+				float loss = (float)nlost / (float)(Stat::get("rd_vod_recv_frames", sdu->flowId()) + nlost);
 
-			// get the new MOS
-			float mos = mosscheduler_->mseVideoMOS(mselost, nlost, loss);
+				// get the new MOS
+				float mos = mosscheduler_->mseVideoMOS(mselost, nlost, loss);
 
-			// update MOS stat
-			Stat::put ("rd_vod_mos", sdu->flowId(), mos);
+				// update MOS stat
+				Stat::put ("rd_vod_mos", sdu->flowId(), mos);
 
-		} else if(sdu->ip()->userdata()->type() == VOIP_DATA) { // VOIP
-			// increase frame count
-			Stat::put ("rd_voip_recv_frames", sdu->flowId(), 1);
+			} else if(sdu->ip()->userdata()->type() == VOIP_DATA) { // VOIP
+				// increase frame count
+				Stat::put ("rd_voip_recv_frames", sdu->flowId(), 1);
 
-			// get the flow's error rate
-			float ploss = (float) Stat::get("e2e_owpl", sdu->flowId());
-			// get the delay
-			float delay = (float) Stat::get("e2e_owd_a", sdu->flowId());
+				// get the flow's error rate
+				float ploss = (float) Stat::get("e2e_owpl", sdu->flowId());
+				// get the delay
+				float delay = (float) Stat::get("e2e_owd_a", sdu->flowId());
 
-			// get the new MOS
-			float mos = mosscheduler_->audioMOS(delay, ploss);
+				// get the new MOS
+				float mos = mosscheduler_->audioMOS(delay, ploss);
 
-			// update MOS stat
-			Stat::put ("rd_voip_mos", sdu->flowId(), mos);
+				// update MOS stat
+				Stat::put ("rd_voip_mos", sdu->flowId(), mos);
 
-		} else { // FTP
+			}
+		}
+		else
+		{ // FTP
 			// increase frame count
 			Stat::put ("rd_ftp_recv_frames", sdu->flowId(), 1);
+			// increase received bits
+			Stat::put("rd_ftp_recbits", sdu->flowId(), sdu->size()*8);
 
-			// get the flow's error rate
-			float ploss = (float) Stat::get("e2e_owpl", sdu->flowId());
-			// get the flow's throughput
-			unsigned long tpt = (unsigned long) Stat::get("e2e_tpt", sdu->flowId());
+			double flowstart = 0;
+			// update throughput
+			if(startTime_.size() <= (unsigned)sdu->flowId()) // flow not present
+			{
+				startTime_.resize(sdu->flowId()+1, 0); // create
+				startTime_[sdu->flowId()] = NOW; // assign start time
+				flowstart = NOW;
+			} else { // flow present
+				if(startTime_[sdu->flowId()] == 0) // first packet
+					startTime_[sdu->flowId()] = NOW; // assign start time
+				flowstart = startTime_[sdu->flowId()]; // fetch time
+			}
 
-			// convert to kbps
-			tpt *= (8/1000);
+			if(flowstart != NOW)
+			{
+				// update the throughput
+				// get total bits
+				unsigned long recbits = Stat::get("rd_ftp_recbits", sdu->flowId());
+				// new tpt
+				unsigned int newtpt = (recbits/8) / (NOW-flowstart);
+				Stat::put("rd_ftp_tpt", sdu->flowId(), newtpt);
 
-			// calculate the MOS
-			float mos = mosscheduler_->dataMOS(ploss, tpt);
+				// get the flow's error rate
+				float ploss = (float) Stat::get("e2e_owpl", sdu->flowId());
 
-			// update MOS stat
-			Stat::put ("rd_ftp_mos", sdu->flowId(), mos);
+				// get the flow's throughput
+				unsigned long tpt = (unsigned long) Stat::get("rd_ftp_tpt", sdu->flowId());
+
+				// convert to kbps
+				tpt *= 8;
+				tpt /= 1000;
+
+				// calculate the MOS
+				float mos = mosscheduler_->dataMOS(ploss, tpt);
+
+				// update MOS stat
+				Stat::put ("rd_ftp_mos", sdu->flowId(), mos);
+			}
 		}
 
 

@@ -119,7 +119,6 @@ WimshSchedulerFairRR::addPdu (WimaxPdu* pdu)
 	if ( ( bufferSharingMode_ == SHARED && bufSize_ + pdu->size() > maxBufSize_ ) ||
 		  ( bufferSharingMode_ == PER_LINK && link_[ndx].size_ + pdu->size() > maxBufSize_) )
 	{
-		fprintf(stderr, "DEBUG packet drop due to overflow buff %u size %u\n",bufSize_, pdu->size());
 		// stat the lost packet for the RD sched
 		Stat::put ("rd_packet_lost_overflow", pdu->sdu()->flowId(), 1);
 		// notify the MAC layer of the pdu about to be dropped

@@ -259,6 +259,9 @@ class WimshMac : public TclObject {
 	//! Sponsor node ID. Set via Tcl.
 	WimaxNodeId sponsorId_;
 
+	//! Vector containing the time the first packet of a flow was received
+	std::vector<double> startTime_;
+
 	//! State of the link establishment procedure. Started via Tcl.
 	LinkEstState linkEstState_;
 	//! Link establishment procedure start time.
