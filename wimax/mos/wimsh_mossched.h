@@ -132,6 +132,12 @@ protected:
 	//! Pointer to the Scheduler
 	WimshSchedulerFairRR* sched_;
 
+	//! Maximum number of packet combinations to evaluate for MOS
+	unsigned int maxCombs_;
+	//! Maximum number of packet combinations to evaluate for size (power of 2, i.e. 2^ncombs)
+	unsigned int nCombs_;
+
+
 	//! convert a long int to a binary value, stored in a vector<bool>
 	void dec2bin(long decimal, vector<bool>* binary);
 	//! compute the standard deviation of an array of floats

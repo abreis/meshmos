@@ -36,6 +36,22 @@ WimshMOSScheduler::command(int argc, const char*const* argv)
 	} else if ( argc == 2 && strcmp (argv[1], "disable") == 0 ) {
 		enabled_ = FALSE;
 		return TCL_OK;
+	} else if ( argc == 3 && strcmp (argv[1], "maxcombs") == 0 ) {
+		if ( atoi (argv[2]) <= 0 ) {
+			fprintf (stderr, "Invalid number of max combinations '%d'. "
+					"Choose a number greater than zero\n", atoi(argv[2]) );
+			return TCL_ERROR;
+		}
+		maxCombs_ = (unsigned int) atoi (argv[2]);
+		return TCL_OK;
+	} else if ( argc == 3 && strcmp (argv[1], "ncombs") == 0 ) {
+		if ( atoi (argv[2]) <= 0 ) {
+			fprintf (stderr, "Invalid number of ncombs '%d'. "
+					"Choose a number greater than zero\n", atoi(argv[2]) );
+			return TCL_ERROR;
+		}
+		nCombs_ = (unsigned int) atoi (argv[2]);
+		return TCL_OK;
 	}
 	return TCL_ERROR;
 }
@@ -623,7 +639,8 @@ WimshMOSScheduler::bufferMOS(unsigned int targetsize)
 //	float buffertrigger = 0.90;
 	float buffertarget = 0.85;
 	float reductionmargin = 0.01;
-	unsigned maxcombs = 5000;	// limit the maximum number of combinations to reduce processing time
+//	unsigned maxcombs = 5000;	// limit the maximum number of combinations to reduce processing time
+	// maxCombs_ set via TCL
 
 	if(npackets > 0 )
 //			&& ((float)sched_->bufSize()/(float)sched_->maxBufSize()) > buffertrigger)
@@ -680,8 +697,8 @@ WimshMOSScheduler::bufferMOS(unsigned int targetsize)
 		// combinations (2^npackets)
 
 		long int ncombs = 0;
-		if( npackets > 20 )	// more than 2^X is unwieldy
-			ncombs = pow(2, 20);
+		if( npackets > nCombs_ )	// 2^nCombs_ set via TCL
+			ncombs = pow(2, nCombs_);
 		else
 			ncombs = pow(2, npackets);
 
@@ -691,7 +708,7 @@ WimshMOSScheduler::bufferMOS(unsigned int targetsize)
 			fprintf (stderr, "\t\tcombination matches for [%u,%u]:\n\t\tID:", lbound, rbound);
 //		std::vector<bool> binComb(npackets, 0);
 		std::vector<long> validCombs;
-		for (long combID = 0; combID < ncombs && validCombs.size() < maxcombs; combID++)
+		for (long combID = 0; combID < ncombs && validCombs.size() < maxCombs_; combID++)
 		{
 			std::vector<bool> binComb;
 			dec2bin(combID, &binComb);

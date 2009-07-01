@@ -148,7 +148,10 @@ set opt(buffer-sharing)     "per-flow" ;# FairRR scheduler only
 #
 # RD scheduler
 #
-set opt(rd-enable) 0
+set opt(mos-enable) 0			;# scheduler enabled (1) or disabled (0)
+set opt(mos-maxcombs) 5000		;# max number of combs to eval for MOS
+set opt(mos-ncombs) 18			;# max number of combs to eval for size
+					;# power of 2, evals 2^18 = 262144
 
 #
 # link profiles

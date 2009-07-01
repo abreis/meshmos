@@ -10,6 +10,8 @@ LICENSES
 Makefile
 Makefile.backup
 Makefile.in
+Makefile.fast
+Makefile.debug
 README
 TODO.html
 VERSION
