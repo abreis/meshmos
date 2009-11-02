@@ -3286,6 +3286,7 @@ webcache/webserver.cc
 webcache/webserver.h
 webcache/webtraf.cc
 webcache/webtraf.h
+wimax/Doxyfile
 wpan/README
 wpan/WPAN_ZBR_pub.pdf
 wpan/p802_15_4const.h
