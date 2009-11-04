@@ -166,7 +166,6 @@ common/net-interface.h
 common/node.cc
 common/node.h
 common/ns-process.cc
-common/ns-process.h
 common/object.cc
 common/object.h
 common/packet-stamp.h
