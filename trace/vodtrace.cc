@@ -1,4 +1,5 @@
-/* Copyright (c) 2009 Andre Braga Reis
+/*
+ * Copyright (C) 2009 Andre Braga Reis
  * andrebragareis at gmail dot com
  *
  * Copyright (c) Xerox Corporation 1997. All rights reserved.
