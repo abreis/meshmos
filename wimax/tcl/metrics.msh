@@ -99,6 +99,8 @@ proc create_metrics {} {
 	$ns stat add rd_voip_recv_frames	avg counter
 
 	$ns stat add rd_ftp_mos	avg discrete
+	$ns stat add rd_ftp_tpt	avg discrete
+	$ns stat add rd_ftp_recbits avg counter
 	$ns stat add rd_ftp_lost_frames	avg counter
 	$ns stat add rd_ftp_recv_frames	avg counter
 	
